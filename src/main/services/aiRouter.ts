@@ -129,11 +129,19 @@ export async function routeRequest(request: RouterRequest): Promise<RouterRespon
     } catch { step('图片 Provider 获取失败，使用对话 Provider') }
   }
 
-  // 2. AI 意图分析
-  step('AI 分析用户意图...')
+  // 2. 意图分析
   const hasImage = (request.imageData?.length ?? 0) > 0
-  const intent = await classifyIntentAI(request.message, hasImage, baseUrl, apiKey, record.chatModel || 'gpt-4o')
-  step(`意图: ${intent.action} (置信度 ${(intent.confidence * 100).toFixed(0)}%) - ${intent.reason}`)
+  let intent: { action: IntentAction; confidence: number; reason: string }
+
+  if (hasImage) {
+    // 用户本次上传了图片 → 直接判定为编辑
+    intent = { action: 'edit', confidence: 1.0, reason: '用户上传了图片，直接编辑' }
+    step(`意图: edit (100%) - 用户上传了图片`)
+  } else {
+    step('AI 分析用户意图...')
+    intent = await classifyIntentAI(request.message, hasImage, baseUrl, apiKey, record.chatModel || 'gpt-4o')
+    step(`意图: ${intent.action} (置信度 ${(intent.confidence * 100).toFixed(0)}%) - ${intent.reason}`)
+  }
 
   // 3. 模型选择
   const models = selectModels(record, imgRecord, intent.action, request.modelSelection)
