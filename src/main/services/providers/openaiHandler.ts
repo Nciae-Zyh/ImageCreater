@@ -51,18 +51,22 @@ export const openaiHandler: ProviderHandler = {
   },
 
   // ===== 图片编辑 =====
-  async editImage({ prompt, image, model, baseUrl, apiKey }) {
+  async editImage({ prompt, image, images, model, baseUrl, apiKey }) {
     const client = new OpenAI({ baseURL: baseUrl, apiKey, timeout: 300000 })
 
-    const imageFile = await toFile(Buffer.from(image.data, 'base64'), null, { type: image.mimeType })
+    // 支持多图编辑：优先使用 images 数组，否则用单张 image
+    const allImages = images && images.length > 0 ? images : [image]
+    const imageFiles = await Promise.all(
+      allImages.map(async (img) => await toFile(Buffer.from(img.data, 'base64'), null, { type: img.mimeType }))
+    )
 
     logger.info(`[OpenAI] 图片编辑: POST ${baseUrl}/images/edits`)
-    logger.info(`[OpenAI] 请求参数: model=${model}, prompt="${prompt}", image=${image.data.length} bytes (base64)`)
+    logger.info(`[OpenAI] 请求参数: model=${model}, prompt="${prompt}", images=${imageFiles.length}张`)
     logger.info(`[OpenAI] 请求头: Authorization=Bearer ${apiKey.slice(0, 8)}...`)
 
     const response = await client.images.edit({
       model,
-      image: [imageFile],
+      image: imageFiles,
       prompt,
     })
 

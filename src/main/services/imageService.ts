@@ -8,6 +8,7 @@ interface ImageGenerateRequest {
   apiKey: string
   model?: string
   imageData?: MessageImage
+  imageDatas?: MessageImage[]
 }
 
 interface ImageGenerateResult {
@@ -31,9 +32,27 @@ export async function generateImage(request: ImageGenerateRequest): Promise<Imag
   const handler = matchProvider(request.baseUrl)
   const model = request.model || 'dall-e-3'
 
+  // 多图编辑：优先使用 imageDatas 数组
+  if (request.imageDatas && request.imageDatas.length > 0 && handler.editImage) {
+    const images = await Promise.all(request.imageDatas.map(resolveImage))
+    logger.info(`[ImageService] 多图编辑 → handler=${handler.name}, model=${model}, 图片数=${images.length}`)
+    logger.info(`[ImageService] prompt="${request.prompt}"`)
+    const result = await handler.editImage({
+      prompt: request.prompt,
+      image: images[0],
+      images,
+      model,
+      baseUrl: request.baseUrl,
+      apiKey: request.apiKey
+    })
+    logger.info(`[ImageService] 编辑完成: model=${result.model}, hasUrl=${!!result.url}, hasB64=${!!result.b64_json}`)
+    return result
+  }
+
+  // 单图编辑
   if (request.imageData && handler.editImage) {
     const image = await resolveImage(request.imageData)
-    logger.info(`[ImageService] 图片编辑 → handler=${handler.name}, model=${model}`)
+    logger.info(`[ImageService] 单图编辑 → handler=${handler.name}, model=${model}`)
     logger.info(`[ImageService] prompt="${request.prompt}"`)
     logger.info(`[ImageService] 图片大小=${image.data.length} bytes (base64)`)
     const result = await handler.editImage({
@@ -47,6 +66,7 @@ export async function generateImage(request: ImageGenerateRequest): Promise<Imag
     return result
   }
 
+  // 图片生成
   logger.info(`[ImageService] 图片生成 → handler=${handler.name}, model=${model}`)
   logger.info(`[ImageService] prompt="${request.prompt}"`)
   const result = await handler.generateImage({

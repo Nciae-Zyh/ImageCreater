@@ -31,6 +31,7 @@ export interface ProviderHandler {
   editImage?(params: {
     prompt: string
     image: MessageImage
+    images?: MessageImage[]
     model: string
     baseUrl: string
     apiKey: string

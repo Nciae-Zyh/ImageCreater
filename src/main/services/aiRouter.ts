@@ -196,31 +196,42 @@ export async function routeRequest(request: RouterRequest): Promise<RouterRespon
     }
 
     case 'edit': {
-      // 编辑意图：如果没有传图片，用 AI 从历史记录中选择
-      let editImage = hasImage && request.imageData?.length ? request.imageData[0] : null
-      if (!editImage) {
+      // 编辑意图：收集所有图片
+      let editImages: MessageImage[] = []
+
+      if (hasImage && request.imageData?.length) {
+        // 用户本次上传的图片（可能是多张）
+        editImages = request.imageData
+        step(`使用用户上传的 ${editImages.length} 张图片`)
+      } else {
+        // 未传入图片，从历史记录查找
         step('未传入图片，从历史记录查找...')
         const allImages = getAllImagesFromHistory(request.conversationId)
         if (allImages.length === 0) {
           step('历史记录中无图片')
         } else if (allImages.length === 1) {
           step(`历史记录中只有 1 张图片，直接使用`)
-          editImage = toMessageImage(allImages[0])
+          const img = toMessageImage(allImages[0])
+          if (img) editImages = [img]
         } else {
           step(`历史记录中有 ${allImages.length} 张图片，AI 判断选择...`)
           const idx = await selectImageByAI(request.message, allImages, baseUrl, apiKey, record.chatModel || 'gpt-4o')
           if (idx >= 0 && idx < allImages.length) {
             step(`AI 选择: "${allImages[idx].content.slice(0, 30)}..."`)
-            editImage = toMessageImage(allImages[idx])
+            const img = toMessageImage(allImages[idx])
+            if (img) editImages = [img]
           } else {
             step('AI 无法确定，使用最新图片')
-            editImage = toMessageImage(allImages[allImages.length - 1])
+            const img = toMessageImage(allImages[allImages.length - 1])
+            if (img) editImages = [img]
           }
         }
-        if (editImage) {
-          step(`图片已选中: ${editImage.url || '(本地base64)'}`)
+        if (editImages.length > 0) {
+          step(`图片已选中: ${editImages.length} 张`)
         }
       }
+
+      const editImage = editImages[0] || null
       if (!editImage) {
         step('无图片可编辑，降级为生成')
         if (!models.imageModel) {
@@ -246,13 +257,13 @@ export async function routeRequest(request: RouterRequest): Promise<RouterRespon
           metadata: { chatModel: visionResult.model, duration: Date.now() - startTime, steps } }
       }
 
-      // 有图片 + 有编辑模型 → 调用 editImage
+      // 有图片 + 有编辑模型 → 调用 editImage（支持多图）
       step(`图片编辑 (${models.imageModel})...`)
-      logger.info(`[Router] 编辑请求: model=${models.imageModel}, prompt=${request.message}, imageUrl=${editImage.url || '(base64)'}`)
+      logger.info(`[Router] 编辑请求: model=${models.imageModel}, prompt=${request.message}, 图片数=${editImages.length}`)
 
       const result = await generateImage({
         prompt: request.message, baseUrl: imgBaseUrl, apiKey: imgApiKey,
-        model: models.imageModel, imageData: editImage
+        model: models.imageModel, imageData: editImage, imageDatas: editImages
       })
       step('编辑完成')
       return { action: 'edit', content: request.message, optimizedPrompt: request.message,
