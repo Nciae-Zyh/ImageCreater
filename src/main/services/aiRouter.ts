@@ -1,4 +1,4 @@
-import { classifyIntentAI, extractImagePrompt } from './intentClassifier'
+import { classifyIntentAI } from './intentClassifier'
 import { sendMessage, cancelStream } from './chatService'
 import { generateImage } from './imageService'
 import { getDecryptedKey } from './apiKeyManager'
@@ -167,7 +167,7 @@ export async function routeRequest(request: RouterRequest): Promise<RouterRespon
     }
 
     case 'generate': {
-      const prompt = extractImagePrompt(request.message)
+      const prompt = request.message
       step(`生成 prompt: ${prompt.slice(0, 50)}...`)
 
       if (!models.imageModel) {
