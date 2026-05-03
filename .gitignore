@@ -1,0 +1,12 @@
+node_modules/
+out/
+dist/
+.env
+*.log
+.DS_Store
+Thumbs.db
+.idea
+.next
+.claude
+test-output-*.png
+test-temp-*.png

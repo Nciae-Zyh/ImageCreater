@@ -1,0 +1,73 @@
+import OpenAI, { toFile } from 'openai'
+import type { ProviderHandler } from './base'
+import { logger } from '../../utils/logger'
+
+/**
+ * OpenAI 兼容处理器
+ *
+ * 参照 OpenAI 官方文档:
+ * - 生成: images.generate
+ * - 编辑: images.edit + toFile
+ */
+export const openaiHandler: ProviderHandler = {
+  id: 'openai-compatible',
+  name: 'OpenAI 兼容',
+  urlPattern: /openai\.com|dashscope|bigmodel\.cn|deepseek|moonshot|01\.ai/i,
+
+  async vision({ prompt, images, model, baseUrl, apiKey }) {
+    const client = new OpenAI({ baseURL: baseUrl, apiKey, timeout: 120000 })
+
+    const content: any[] = images.map((img) => ({
+      type: 'image_url',
+      image_url: { url: `data:${img.mimeType};base64,${img.data}`, detail: 'high' }
+    }))
+    content.push({ type: 'text', text: prompt })
+
+    logger.info(`[OpenAI] 视觉分析: POST ${baseUrl}/chat/completions`)
+    logger.info(`[OpenAI] 视觉参数: model=${model}, images=${images.length}, prompt="${prompt.slice(0, 100)}"`)
+    logger.info(`[OpenAI] 请求头: Authorization=Bearer ${apiKey.slice(0, 8)}...`)
+
+    const res = await client.chat.completions.create({
+      model, messages: [{ role: 'user', content }], max_tokens: 4096
+    })
+
+    logger.info(`[OpenAI] 视觉完成: model=${res.model}, tokens=${res.usage?.total_tokens}`)
+    return { content: res.choices[0]?.message?.content || '', model: res.model || model, tokens: res.usage?.total_tokens }
+  },
+
+  // ===== 图片生成 =====
+  async generateImage({ prompt, model, baseUrl, apiKey }) {
+    const client = new OpenAI({ baseURL: baseUrl, apiKey, timeout: 300000 })
+
+    logger.info(`[OpenAI] 图片生成: POST ${baseUrl}/images/generations`)
+    logger.info(`[OpenAI] 请求参数: model=${model}, prompt="${prompt.slice(0, 80)}..."`)
+    logger.info(`[OpenAI] 请求头: Authorization=Bearer ${apiKey.slice(0, 8)}...`)
+
+    const result = await client.images.generate({ model, prompt })
+
+    const image_base64 = result.data[0].b64_json
+    logger.info(`[OpenAI] 图片生成完成: model=${(result as any).model || model}, b64长度=${image_base64?.length || 0}`)
+    return { b64_json: image_base64 ?? undefined, url: result.data[0].url ?? undefined, model: (result as any).model || model }
+  },
+
+  // ===== 图片编辑 =====
+  async editImage({ prompt, image, model, baseUrl, apiKey }) {
+    const client = new OpenAI({ baseURL: baseUrl, apiKey, timeout: 300000 })
+
+    const imageFile = await toFile(Buffer.from(image.data, 'base64'), null, { type: image.mimeType })
+
+    logger.info(`[OpenAI] 图片编辑: POST ${baseUrl}/images/edits`)
+    logger.info(`[OpenAI] 请求参数: model=${model}, prompt="${prompt}", image=${image.data.length} bytes (base64)`)
+    logger.info(`[OpenAI] 请求头: Authorization=Bearer ${apiKey.slice(0, 8)}...`)
+
+    const response = await client.images.edit({
+      model,
+      image: [imageFile],
+      prompt,
+    })
+
+    const image_base64 = response.data[0].b64_json
+    logger.info(`[OpenAI] 图片编辑完成: model=${(response as any).model || model}, b64长度=${image_base64?.length || 0}`)
+    return { b64_json: image_base64 ?? undefined, url: response.data[0].url ?? undefined, model: (response as any).model || model }
+  }
+}
