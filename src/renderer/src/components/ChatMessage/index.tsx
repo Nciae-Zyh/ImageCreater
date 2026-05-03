@@ -221,7 +221,6 @@ export default function ChatMessage({ message, streaming = false, error }: ChatM
           <Space size={4} wrap>
             {meta.model && <Tag style={{ fontSize: 10 }}>{meta.model}</Tag>}
             {meta.duration && <Tag icon={<ClockCircleOutlined />} style={{ fontSize: 10 }}>{(meta.duration / 1000).toFixed(1)}s</Tag>}
-            {meta.optimizedPrompt && <Tag color="purple" style={{ fontSize: 10 }}>Prompt 优化</Tag>}
           </Space>
         )}
       </div>

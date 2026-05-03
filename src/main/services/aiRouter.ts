@@ -1,5 +1,4 @@
 import { classifyIntentAI, extractImagePrompt } from './intentClassifier'
-import { optimizePrompt } from './promptOptimizer'
 import { sendMessage, cancelStream } from './chatService'
 import { generateImage } from './imageService'
 import { getDecryptedKey } from './apiKeyManager'
@@ -168,34 +167,23 @@ export async function routeRequest(request: RouterRequest): Promise<RouterRespon
     }
 
     case 'generate': {
-      const rawPrompt = extractImagePrompt(request.message)
-      step(`生成 prompt: ${rawPrompt.slice(0, 50)}...`)
-
-      let optimizedPrompt = rawPrompt
-      try {
-        step('优化 prompt...')
-        optimizedPrompt = await optimizePrompt({
-          userMessage: rawPrompt,
-          action: hasImage ? 'reference' : 'generate',
-          baseUrl, apiKey, model: models.chatModel
-        })
-        step(`优化完成`)
-      } catch { step('Prompt 优化跳过') }
+      const prompt = extractImagePrompt(request.message)
+      step(`生成 prompt: ${prompt.slice(0, 50)}...`)
 
       if (!models.imageModel) {
-        return { action: 'generate', content: `无图片模型。`, optimizedPrompt,
+        return { action: 'generate', content: `无图片模型。`, optimizedPrompt: prompt,
           metadata: { chatModel: models.chatModel, duration: Date.now() - startTime, steps } }
       }
 
       step(`调用图片生成 (${models.imageModel})...`)
-      logger.info(`[Router] 生图请求: model=${models.imageModel}, prompt=${optimizedPrompt}, hasImage=${hasImage}`)
+      logger.info(`[Router] 生图请求: model=${models.imageModel}, prompt=${prompt}, hasImage=${hasImage}`)
       const imgData = hasImage && request.imageData?.length ? request.imageData[0] : undefined
 
       const result = await generateImage({
-        prompt: optimizedPrompt, baseUrl: imgBaseUrl, apiKey: imgApiKey, model: models.imageModel, imageData: imgData
+        prompt, baseUrl: imgBaseUrl, apiKey: imgApiKey, model: models.imageModel, imageData: imgData
       })
       step('生成完成')
-      return { action: 'generate', content: optimizedPrompt, optimizedPrompt, imageUrl: result.url, imageBase64: result.b64_json,
+      return { action: 'generate', content: prompt, optimizedPrompt: prompt, imageUrl: result.url, imageBase64: result.b64_json,
         metadata: { chatModel: models.chatModel, imageModel: result.model, duration: Date.now() - startTime, steps } }
     }
 
@@ -227,18 +215,13 @@ export async function routeRequest(request: RouterRequest): Promise<RouterRespon
       }
       if (!editImage) {
         step('无图片可编辑，降级为生成')
-        let optimizedPrompt = request.message
-        try {
-          step('优化 prompt...')
-          optimizedPrompt = await optimizePrompt({ userMessage: request.message, action: 'generate', baseUrl, apiKey, model: models.chatModel })
-        } catch {}
         if (!models.imageModel) {
-          return { action: 'generate', content: `无图片模型。`, optimizedPrompt,
+          return { action: 'generate', content: `无图片模型。`, optimizedPrompt: request.message,
             metadata: { chatModel: models.chatModel, duration: Date.now() - startTime, steps } }
         }
-        const result = await generateImage({ prompt: optimizedPrompt, baseUrl: imgBaseUrl, apiKey: imgApiKey, model: models.imageModel })
+        const result = await generateImage({ prompt: request.message, baseUrl: imgBaseUrl, apiKey: imgApiKey, model: models.imageModel })
         step('生成完成')
-        return { action: 'generate', content: optimizedPrompt, optimizedPrompt, imageUrl: result.url, imageBase64: result.b64_json,
+        return { action: 'generate', content: request.message, optimizedPrompt: request.message, imageUrl: result.url, imageBase64: result.b64_json,
           metadata: { chatModel: models.chatModel, imageModel: result.model, duration: Date.now() - startTime, steps } }
       }
 
