@@ -33,6 +33,12 @@ export function useChat() {
 
     if (!chatProviderId) { setError('请先配置 API Key'); return null }
 
+    // 先清理上一次的流
+    if (cancelRef.current) {
+      cancelRef.current()
+      cancelRef.current = null
+    }
+
     setError(null)
     setIsStreaming(true)
     setStreamState({ steps: [], textContent: '', imageUrl: null, partialImage: null, meta: null, error: null })

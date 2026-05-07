@@ -8,6 +8,7 @@ import { getDecryptedKey } from '../services/apiKeyManager'
 import {
   saveConversation, saveMessage, getAllConversations,
   getMessages, deleteConversation as dbDeleteConversation,
+  deleteMessage as dbDeleteMessage,
   saveImageToDisk, getImageAsBase64, IMAGES_DIR,
   savePreference, getPreference, getAllPreferences,
   saveImageTask, updateImageTaskStatus
@@ -298,9 +299,7 @@ export function registerChatHandlers(): void {
   // 删除单条消息
   ipcMain.handle('conversation:delete-message', async (_event, conversationId: string, messageId: string) => {
     try {
-      const d = getDb()
-      d.run('DELETE FROM messages WHERE id = ? AND conversation_id = ?', [messageId, conversationId])
-      saveDatabase()
+      dbDeleteMessage(conversationId, messageId)
       logger.info(`[Chat] 删除消息: ${messageId}`)
       return { success: true }
     } catch (error) {
