@@ -74,7 +74,8 @@ export default function ChatPage({ onOpenSettings }: ChatPageProps) {
     })
     try {
       const intentResult = await window.electronAPI.chat.analyzeIntent({
-        message: content, providerId: activeProviderId, hasImage: false
+        message: content, providerId: activeProviderId, hasImage: false,
+        conversationId: activeConversationId || undefined
       })
       if (!intentResult.success) {
         setIntentConfirm(null)

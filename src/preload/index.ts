@@ -60,7 +60,7 @@ try {
       },
       cancel: (conversationId: string) =>
         ipcRenderer.send(IPC_CHANNELS.CHAT.CANCEL, conversationId),
-      analyzeIntent: (data: { message: string; providerId: string; hasImage: boolean }) =>
+      analyzeIntent: (data: { message: string; providerId: string; hasImage: boolean; conversationId?: string }) =>
         ipcRenderer.invoke(IPC_CHANNELS.CHAT.ANALYZE_INTENT, data)
     },
 

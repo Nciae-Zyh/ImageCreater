@@ -129,7 +129,7 @@ export async function routeRequest(request: RouterRequest): Promise<RouterRespon
     } catch { step('图片 Provider 获取失败，使用对话 Provider') }
   }
 
-  // 2. 意图分析
+  // 2. 意图分析（结合对话历史）
   const hasImage = (request.imageData?.length ?? 0) > 0
   let intent: { action: IntentAction; confidence: number; reason: string }
 
@@ -138,8 +138,18 @@ export async function routeRequest(request: RouterRequest): Promise<RouterRespon
     intent = { action: 'edit', confidence: 1.0, reason: '用户上传了图片，直接编辑' }
     step(`意图: edit (100%) - 用户上传了图片`)
   } else {
+    // 获取对话历史，传给意图分析器
     step('AI 分析用户意图...')
-    intent = await classifyIntentAI(request.message, hasImage, baseUrl, apiKey, record.chatModel || 'gpt-4o')
+    const historyMessages = getMessages(request.conversationId).slice(-10)
+    const conversationHistory = historyMessages.map((m) => ({
+      role: m.role,
+      content: m.content.slice(0, 200),
+      hasImage: !!m.image_url
+    }))
+    intent = await classifyIntentAI(
+      request.message, hasImage, baseUrl, apiKey,
+      record.chatModel || 'gpt-4o', conversationHistory
+    )
     step(`意图: ${intent.action} (置信度 ${(intent.confidence * 100).toFixed(0)}%) - ${intent.reason}`)
   }
 

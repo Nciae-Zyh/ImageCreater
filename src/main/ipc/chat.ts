@@ -226,11 +226,24 @@ export function registerChatHandlers(): void {
 
   // AI 意图预分析：判断用户是否需要图片（编辑/参考）
   ipcMain.handle(IPC_CHANNELS.CHAT.ANALYZE_INTENT, async (_event, data: {
-    message: string; providerId: string; hasImage: boolean
+    message: string; providerId: string; hasImage: boolean; conversationId?: string
   }) => {
     try {
       const { baseUrl, apiKey, record } = await getDecryptedKey(data.providerId)
-      const intent = await classifyIntentAI(data.message, data.hasImage, baseUrl, apiKey, record.chatModel || 'gpt-4o')
+      // 获取对话历史传给意图分析器
+      let conversationHistory: { role: string; content: string; hasImage?: boolean }[] | undefined
+      if (data.conversationId) {
+        const messages = getMessages(data.conversationId).slice(-10)
+        conversationHistory = messages.map((m) => ({
+          role: m.role,
+          content: m.content.slice(0, 200),
+          hasImage: !!m.image_url
+        }))
+      }
+      const intent = await classifyIntentAI(
+        data.message, data.hasImage, baseUrl, apiKey,
+        record.chatModel || 'gpt-4o', conversationHistory
+      )
       return { success: true, data: intent }
     } catch (error) {
       return { success: false, error: (error as Error).message }
