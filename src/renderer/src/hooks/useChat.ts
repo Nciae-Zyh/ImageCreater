@@ -121,11 +121,19 @@ export function useChat() {
         }
       })
 
-      return await window.electronAPI.chat.send({
+      const result = await window.electronAPI.chat.send({
         message: content, conversationId: convId,
         providerId: chatProviderId, imageProviderId: imgProviderId,
         imageData, modelSelection
       })
+
+      // 用返回值直接更新图片，确保显示
+      if (result?.success && result?.data?.imageUrl) {
+        msgState.imageUrl = result.data.imageUrl
+        flushUpdate()
+      }
+
+      return result
     } catch (err) {
       setError(err instanceof Error ? err.message : '发送失败')
       return null
