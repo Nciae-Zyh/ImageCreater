@@ -239,7 +239,7 @@ export default function ChatPage({ onOpenSettings }: ChatPageProps) {
                 <Text style={{ fontSize: 13, marginBottom: 8, display: 'block' }}>
                   选择参考图片（可多选，{intentConfirm.action === 'edit' ? '不选则使用最新一张' : '不选则纯文生图'}）：
                 </Text>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, maxHeight: 240, overflow: 'auto' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, maxHeight: 300, overflow: 'auto' }}>
                   {intentConfirm.histImages.map((img: any) => {
                     const selected = intentConfirm.selectedImageIds.has(img.id)
                     return (
