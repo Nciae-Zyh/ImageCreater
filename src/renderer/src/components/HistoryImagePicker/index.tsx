@@ -78,8 +78,10 @@ export default function HistoryImagePicker({ conversationId, onSelect }: History
 
   return (
     <Popover content={content} trigger="click" open={open} onOpenChange={setOpen} placement="topLeft">
-      <Tooltip title="从历史记录选择参考图">
-        <Button type="text" icon={<HistoryOutlined />} size="small" style={{ width: 36, height: 36 }} />
+      <Tooltip title="从历史记录选择图片">
+        <Button type="text" icon={<HistoryOutlined />} style={{ borderRadius: 12, height: 40 }}>
+          历史图片
+        </Button>
       </Tooltip>
     </Popover>
   )
