@@ -62,21 +62,20 @@ async function selectImageByAI(
     const res = await client.chat.completions.create({
       model,
       messages: [
-        { role: 'system', content: `用户想编辑一张图片。以下是对话历史中的图片列表，每张标注了序号和相关描述。
-请判断用户想编辑哪张图片，返回 JSON: {"index": 序号, "reason": "原因"}
-
-如果有多张图片都匹配，返回最匹配的那张。
-如果无法确定，返回 {"index": -1, "reason": "无法确定"}` },
-        { role: 'user', content: `用户输入: ${userMessage}\n\n图片列表:\n${imageDescs}` }
+        { role: 'system', content: `只返回一个数字，表示用户想编辑的图片序号。如果无法确定返回 -1。` },
+        { role: 'user', content: `用户说: "${userMessage}"\n\n图片列表:\n${imageDescs}\n\n选择序号:` }
       ],
       temperature: 0,
-      max_tokens: 100,
-      response_format: { type: 'json_object' } as any
+      max_tokens: 10
     })
 
-    const parsed = JSON.parse(res.choices[0]?.message?.content || '{}')
-    logger.info(`[Router] AI 选择图片: index=${parsed.index}, reason=${parsed.reason}`)
-    return typeof parsed.index === 'number' ? parsed.index : -1
+    const content = res.choices[0]?.message?.content?.trim() || ''
+    logger.info(`[Router] AI 选择图片原始返回: "${content}"`)
+    // 提取数字
+    const match = content.match(/-?\d+/)
+    const index = match ? parseInt(match[0]) : -1
+    logger.info(`[Router] AI 选择图片: index=${index}`)
+    return index
   } catch (error) {
     logger.error(`[Router] AI 选择图片失败:`, error)
     return -1
