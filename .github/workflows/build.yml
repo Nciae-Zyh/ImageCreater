@@ -19,6 +19,7 @@ jobs:
             platform: win
 
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
@@ -41,7 +42,13 @@ jobs:
         run: pnpm build
 
       - name: Build (${{ matrix.platform }})
+        if: matrix.platform != 'mac'
         run: pnpm build:${{ matrix.platform }}
+
+      - name: Build (mac, retry once for flaky hdiutil)
+        if: matrix.platform == 'mac'
+        run: |
+          pnpm build:mac || pnpm build:mac
 
       - name: Upload artifacts (macOS)
         if: matrix.platform == 'mac'
