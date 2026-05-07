@@ -206,38 +206,25 @@ export async function routeRequest(request: RouterRequest): Promise<RouterRespon
     }
 
     case 'edit': {
-      // 编辑意图：收集所有图片
+      // 编辑意图：始终使用最新图片
       let editImages: MessageImage[] = []
 
       if (hasImage && request.imageData?.length) {
-        // 用户本次上传的图片（可能是多张）
         editImages = request.imageData
         step(`使用用户上传的 ${editImages.length} 张图片`)
       } else {
-        // 未传入图片，从历史记录查找
-        step('未传入图片，从历史记录查找...')
+        step('从历史记录获取最新图片...')
         const allImages = getAllImagesFromHistory(request.conversationId)
         if (allImages.length === 0) {
           step('历史记录中无图片')
-        } else if (allImages.length === 1) {
-          step(`历史记录中只有 1 张图片，直接使用`)
-          const img = toMessageImage(allImages[0])
-          if (img) editImages = [img]
         } else {
-          step(`历史记录中有 ${allImages.length} 张图片，AI 判断选择...`)
-          const idx = await selectImageByAI(request.message, allImages, baseUrl, apiKey, record.chatModel || 'gpt-4o')
-          if (idx >= 0 && idx < allImages.length) {
-            step(`AI 选择: "${allImages[idx].content.slice(0, 30)}..."`)
-            const img = toMessageImage(allImages[idx])
-            if (img) editImages = [img]
-          } else {
-            step('AI 无法确定，使用最新图片')
-            const img = toMessageImage(allImages[allImages.length - 1])
-            if (img) editImages = [img]
+          // 直接使用最新的一张
+          const latest = allImages[allImages.length - 1]
+          const img = toMessageImage(latest)
+          if (img) {
+            editImages = [img]
+            step(`使用最新图片: ${latest.content.slice(0, 30) || '(无描述)'}...`)
           }
-        }
-        if (editImages.length > 0) {
-          step(`图片已选中: ${editImages.length} 张`)
         }
       }
 
