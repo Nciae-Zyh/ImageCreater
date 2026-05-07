@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Layout, Button, Space, Typography, Tag, Spin, message as antMessage } from 'antd'
-import { SettingOutlined, RobotOutlined, CheckOutlined, FileTextOutlined } from '@ant-design/icons'
+import { Layout, Button, Space, Typography, Tag, message as antMessage } from 'antd'
+import { SettingOutlined, RobotOutlined, FileTextOutlined } from '@ant-design/icons'
 import Sidebar from './components/Sidebar'
 import ChatMessage from '../../components/ChatMessage'
 import ChatInput from '../../components/ChatInput'
@@ -20,10 +20,10 @@ interface ChatPageProps {
 export default function ChatPage({ onOpenSettings }: ChatPageProps) {
   const { conversations, activeConversationId, createConversation, switchConversation, loadConversations } = useConversationStore()
   const { activeProviderId, imageProviderId, providers, selectedChatModel, selectedImageModel } = useProviderStore()
-  const { sendMessage, isStreaming, cancelStream, streamState } = useChat()
+  const { sendMessage, isStreaming, cancelStream, streamState, streamingByConversation } = useChat()
 
   const [autoMode, setAutoMode] = useState(true)
-  // agent 式图片选择：在聊天区域展示，而非弹窗
+  // 图片选择器数据（不渲染浮动 UI，仅管理状态）
   const [imagePicker, setImagePicker] = useState<{
     content: string; imageData?: MessageImage[];
     histImages: any[]; selectedImageIds: Set<string>
@@ -35,6 +35,45 @@ export default function ChatPage({ onOpenSettings }: ChatPageProps) {
   const chatProvider = providers.find((p) => p.id === activeProviderId)
 
   useEffect(() => { loadConversations() }, [])
+
+  // 切换对话时仅重置图片选择器，生成状态按会话独立维护
+  useEffect(() => {
+    setImagePicker(null)
+  }, [activeConversationId])
+
+  const restorePickerFromLatestMessage = useCallback(async () => {
+    if (!activeConversation || activeConversation.messages.length === 0) return
+    if (imagePicker) return
+    const lastMsg = activeConversation.messages[activeConversation.messages.length - 1] as any
+    if (lastMsg.role !== 'assistant') return
+
+    let needUserSelect = !!lastMsg.needUserSelect
+    let promptFromMeta = lastMsg.content || ''
+    const lastUserMessage = [...activeConversation.messages]
+      .reverse()
+      .find((m) => m.role === 'user' && m.content?.trim())
+
+    try {
+      const parsed = typeof lastMsg.metadata === 'string'
+        ? JSON.parse(lastMsg.metadata)
+        : (lastMsg.metadata || {})
+      needUserSelect = needUserSelect || !!parsed.needUserSelect
+      promptFromMeta = parsed.prompt || parsed.optimizedPrompt || lastMsg.content || ''
+    } catch {
+      // ignore
+    }
+
+    if (!needUserSelect) return
+    if (!promptFromMeta?.trim()) {
+      promptFromMeta = lastUserMessage?.content || ''
+    }
+    await openImagePicker(promptFromMeta, undefined, true)
+  }, [activeConversation, imagePicker, activeConversationId])
+
+  // 加载历史消息后，如果最后一条助手消息需要用户选图，自动恢复选择器
+  useEffect(() => {
+    restorePickerFromLatestMessage()
+  }, [restorePickerFromLatestMessage, activeConversation?.messages])
 
   useEffect(() => {
     if (messagesEndRef.current) {
@@ -48,21 +87,23 @@ export default function ChatPage({ onOpenSettings }: ChatPageProps) {
     switchConversation(id)
   }
 
-  const doSend = async (content: string, imageData?: MessageImage[]) => {
+  const doSend = async (content: string, imageData?: MessageImage[], options?: { skipUserMessage?: boolean }) => {
     const modelSelection: ModelSelection = autoMode
       ? { mode: 'auto' }
       : { mode: 'manual', chatModel: selectedChatModel, visionModel: chatProvider?.visionModel, imageModel: selectedImageModel }
-    return await sendMessage(content, imageData, modelSelection)
+    return await sendMessage(content, imageData, modelSelection, options)
   }
 
-  // 打开图片选择器
   const openImagePicker = async (content: string, imageData?: MessageImage[], lastSelected?: boolean) => {
+    console.log('[ChatPage] openImagePicker 调用', { content: content?.slice(0, 50), activeConversationId })
     if (!activeConversationId) return
     let histImgs: any[] = []
     try {
       const result = await window.electronAPI.conversations.getImages(activeConversationId)
+      console.log('[ChatPage] getImages 结果:', result.success, '图片数:', result.data?.length)
       if (result.success) histImgs = result.data || []
     } catch (e) { console.error('[ChatPage] getImages 错误:', e) }
+    console.log('[ChatPage] setImagePicker', { histImgCount: histImgs.length, lastSelected })
     setImagePicker({
       content, imageData,
       histImages: histImgs,
@@ -74,22 +115,28 @@ export default function ChatPage({ onOpenSettings }: ChatPageProps) {
 
   const handleSend = async (content: string, imageData?: MessageImage[]) => {
     if (imageData && imageData.length > 0) {
-      await doSend(content, imageData)
+      const result = await doSend(content, imageData)
+      if (result?.data?.needUserSelect) {
+        antMessage.info('视觉分析无法确定，请手动选择图片')
+        await openImagePicker(content, imageData, true)
+      }
       return
     }
     if (!activeProviderId || !activeConversationId) {
       await doSend(content, imageData)
       return
     }
-    // AI 分析意图
     try {
       const intentResult = await window.electronAPI.chat.analyzeIntent({
         message: content, providerId: activeProviderId, hasImage: false,
         conversationId: activeConversationId || undefined
       })
-      console.log(`[ChatPage] analyzeIntent:`, intentResult)
       if (!intentResult.success) {
-        await doSend(content, imageData)
+        const result = await doSend(content, imageData)
+        if (result?.data?.needUserSelect) {
+          antMessage.info('视觉分析无法确定，请手动选择图片')
+          await openImagePicker(content, imageData, true)
+        }
         return
       }
       const action = intentResult.data?.action || 'chat'
@@ -97,7 +144,6 @@ export default function ChatPage({ onOpenSettings }: ChatPageProps) {
         await doSend(content, imageData)
         return
       }
-      // edit 或 generate：弹出图片选择器
       await openImagePicker(content, imageData, action === 'edit')
     } catch (e) {
       console.error('[ChatPage] handleSend 错误:', e)
@@ -118,10 +164,17 @@ export default function ChatPage({ onOpenSettings }: ChatPageProps) {
         type: 'image' as const, mimeType: 'image/png',
         data: img.imageBase64 || '', url: img.imageUrl
       }))
+    const convId = activeConversationId
     setImagePicker(null)
-    const result = await doSend(content, [...(imageData || []), ...selectedImgs])
-    // 如果后端仍需用户选图（视觉分析再次失败），重新打开选择器
-    if (result?.data?.needUserSelect) {
+    // skipUserMessage: 用户消息已在首次发送时保存，避免重复
+    const result = await doSend(content, [...(imageData || []), ...selectedImgs], { skipUserMessage: true })
+    // 等待对话和消息从 DB 完整加载
+    await loadConversations()
+    if (convId) await switchConversation(convId)
+    // 直接检查：IPC 返回 needUserSelect 或 DB 消息需要选图
+    const lastMsg = useConversationStore.getState().conversations
+      .find(c => c.id === convId)?.messages.slice(-1)[0]
+    if (result?.data?.needUserSelect || (lastMsg as any)?.needUserSelect) {
       antMessage.info('视觉分析无法确定，请手动选择图片')
       await openImagePicker(content, imageData, true)
     }
@@ -138,7 +191,11 @@ export default function ChatPage({ onOpenSettings }: ChatPageProps) {
 
   return (
     <Layout style={{ height: '100%' }}>
-      <Sidebar onNewChat={handleNewChat} onOpenSettings={onOpenSettings} />
+      <Sidebar
+        onNewChat={handleNewChat}
+        onOpenSettings={onOpenSettings}
+        streamingByConversation={streamingByConversation}
+      />
       <Layout>
         <Header
           className="titlebar-drag"
@@ -182,6 +239,9 @@ export default function ChatPage({ onOpenSettings }: ChatPageProps) {
           <div ref={scrollContainerRef} style={{ flex: 1, overflow: 'auto', padding: '24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
             {activeConversation?.messages.map((msg, idx) => {
               const isLastAssistant = msg.role === 'assistant' && idx === activeConversation.messages.length - 1
+              const isLatestMsg = idx === activeConversation.messages.length - 1
+              // 判断是否需要显示内联图片选择器
+              const showPicker = isLastAssistant && imagePicker && !isStreaming
               return (
                 <ChatMessage
                   key={msg.id}
@@ -195,54 +255,18 @@ export default function ChatPage({ onOpenSettings }: ChatPageProps) {
                       loadConversations()
                     }
                   }}
+                  needUserSelect={showPicker}
+                  histImages={showPicker ? imagePicker.histImages : undefined}
+                  selectedImageIds={showPicker ? imagePicker.selectedImageIds : undefined}
+                  isLatest={isLatestMsg}
+                  onToggleImage={showPicker ? toggleImageSelect : undefined}
+                  onConfirmImages={showPicker ? handleConfirmImagePicker : undefined}
+                  onCancelSelect={showPicker ? () => setImagePicker(null) : undefined}
                 />
               )
             })}
 
-            {/* Agent 式图片选择器 - 直接在聊天区域展示 */}
-            {imagePicker && (
-              <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-                <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#f0f0f0', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  <RobotOutlined style={{ color: '#666', fontSize: 16 }} />
-                </div>
-                <div style={{ background: '#fff', padding: '16px', borderRadius: '12px 12px 12px 4px', boxShadow: '0 1px 2px rgba(0,0,0,0.1)', maxWidth: 600 }}>
-                  <Text strong style={{ fontSize: 14, display: 'block', marginBottom: 8 }}>
-                    找到 {imagePicker.histImages.length} 张历史图片，请选择要操作的图片：
-                  </Text>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, maxHeight: 280, overflow: 'auto', marginBottom: 12 }}>
-                    {imagePicker.histImages.map((img: any) => {
-                      const selected = imagePicker.selectedImageIds.has(img.id)
-                      return (
-                        <div key={img.id} onClick={() => toggleImageSelect(img.id)} style={{
-                          cursor: 'pointer', borderRadius: 8, overflow: 'hidden',
-                          border: selected ? '2px solid #1677ff' : '2px solid #f0f0f0',
-                          position: 'relative', transition: 'border-color 0.2s'
-                        }}>
-                          <img src={img.imageUrl || `data:image/png;base64,${img.imageBase64}`} alt=""
-                            style={{ width: '100%', height: 100, objectFit: 'cover', display: 'block' }} />
-                          {selected && <div style={{
-                            position: 'absolute', top: 4, right: 4, background: '#1677ff', color: '#fff',
-                            borderRadius: '50%', width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center'
-                          }}><CheckOutlined style={{ fontSize: 10 }} /></div>}
-                          <div style={{ padding: '4px 6px', background: '#fafafa' }}>
-                            <Text ellipsis style={{ fontSize: 11 }}>{img.content || '图片'}</Text>
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                  <Space>
-                    <Button type="primary" icon={<CheckOutlined />} onClick={handleConfirmImagePicker}
-                      disabled={imagePicker.selectedImageIds.size === 0}>
-                      确认选择 ({imagePicker.selectedImageIds.size})
-                    </Button>
-                    <Button onClick={() => setImagePicker(null)}>取消</Button>
-                  </Space>
-                </div>
-              </div>
-            )}
-
-            {(!activeConversation || activeConversation.messages.length === 0) && !imagePicker && (
+            {(!activeConversation || activeConversation.messages.length === 0) && (
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#999' }}>
                 <RobotOutlined style={{ fontSize: 64, marginBottom: 16, opacity: 0.3 }} />
                 <Text type="secondary" style={{ fontSize: 16 }}>开始对话，或输入"画一张..."来生成图片</Text>
@@ -260,7 +284,7 @@ export default function ChatPage({ onOpenSettings }: ChatPageProps) {
             onSend={handleSend}
             onCancel={cancelStream}
             loading={isStreaming}
-            disabled={!activeProviderId || !!imagePicker}
+            disabled={!activeProviderId}
             autoMode={autoMode}
             onAutoModeChange={setAutoMode}
             conversationId={activeConversationId}

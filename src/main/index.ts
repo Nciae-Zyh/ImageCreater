@@ -73,6 +73,11 @@ function createWindow(): void {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'))
   }
 
+  // dev 模式自动打开 DevTools
+  if (!app.isPackaged) {
+    mainWindow.webContents.openDevTools({ mode: 'detach' })
+  }
+
   mainWindow.on('closed', () => { mainWindow = null })
 }
 

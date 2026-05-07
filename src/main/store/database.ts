@@ -107,7 +107,10 @@ export function saveConversation(conv: {
 
 export function getAllConversations(): any[] {
   const d = getDb()
-  const results = d.exec('SELECT * FROM conversations ORDER BY updated_at DESC')
+  const results = d.exec(`
+    SELECT c.*, (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id) as message_count
+    FROM conversations c ORDER BY c.updated_at DESC
+  `)
   if (results.length === 0) return []
   const cols = results[0].columns
   return results[0].values.map((row) => {

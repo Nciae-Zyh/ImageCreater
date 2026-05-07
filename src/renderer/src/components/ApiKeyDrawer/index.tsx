@@ -25,8 +25,10 @@ export default function ApiKeyDrawer({ open, onClose }: ApiKeyDrawerProps) {
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!open) {
-      form.resetFields()
+    if (open) {
+      // 打开时重置表单（需等待 DOM 挂载）
+      requestAnimationFrame(() => form.resetFields())
+    } else {
       setExpandedId(null)
     }
   }, [open, form])
