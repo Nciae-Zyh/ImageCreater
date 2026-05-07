@@ -29,7 +29,7 @@ export const mimoHandler: ProviderHandler = {
 
     logger.info(`[MiMo] 视觉分析: POST ${baseUrl}/chat/completions`)
     logger.info(`[MiMo] 视觉参数: model=${model}, images=${images.length}, prompt="${prompt.slice(0, 100)}"`)
-    logger.info(`[MiMo] 请求头: Authorization=Bearer ${apiKey.slice(0, 8)}...`)
+    logger.info(`[MiMo] 请求头: Authorization=Bearer ${apiKey.slice(0, 3)}***`)
 
     const res = await client.chat.completions.create({
       model, messages: [{ role: 'user', content }], max_tokens: 4096

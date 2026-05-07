@@ -92,6 +92,13 @@ try {
       status: () => ipcRenderer.invoke('r2:status')
     },
 
+    log: {
+      export: (options?: { startDate?: string; endDate?: string }) =>
+        ipcRenderer.invoke('log:export', options),
+      files: () => ipcRenderer.invoke('log:files'),
+      clean: (keepDays: number) => ipcRenderer.invoke('log:clean', keepDays)
+    },
+
     app: {
       platform: () => {
         const p = navigator.platform.toLowerCase()

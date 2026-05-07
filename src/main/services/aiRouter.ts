@@ -222,7 +222,7 @@ export async function routeRequest(request: RouterRequest): Promise<RouterRespon
   const models = selectModels(record, imgRecord, intent.action, request.modelSelection)
   models.imageBaseUrl = imgBaseUrl; models.imageApiKey = imgApiKey
   step(`模型: 对话=${models.chatModel}, 视觉=${models.visionModel}, 图片=${models.imageModel}`)
-  logger.info(`[Router] 完整配置: ${JSON.stringify({ intent: intent.action, models, hasImage })}`)
+  logger.info(`[Router] 完整配置: ${JSON.stringify({ intent: intent.action, ...models, imageApiKey: '***', hasImage })}`)
 
   // 4. 执行
   switch (intent.action) {
