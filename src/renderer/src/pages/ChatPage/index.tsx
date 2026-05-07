@@ -162,6 +162,13 @@ export default function ChatPage({ onOpenSettings }: ChatPageProps) {
                   message={msg}
                   streaming={isLastAssistant && isStreaming}
                   error={isLastAssistant ? streamState.error : null}
+                  conversationId={activeConversationId || undefined}
+                  onDelete={async (msgId) => {
+                    if (activeConversationId) {
+                      await window.electronAPI.conversations.deleteMessage(activeConversationId, msgId)
+                      loadConversations()
+                    }
+                  }}
                 />
               )
             })}

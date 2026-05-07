@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Typography, Space, Tag, Spin, Image, Button, Collapse, Alert, message as antMessage } from 'antd'
-import { UserOutlined, RobotOutlined, ClockCircleOutlined, DownloadOutlined, ExpandOutlined, CheckCircleOutlined, LoadingOutlined, CloseCircleOutlined } from '@ant-design/icons'
+import { UserOutlined, RobotOutlined, ClockCircleOutlined, DownloadOutlined, ExpandOutlined, CheckCircleOutlined, LoadingOutlined, CloseCircleOutlined, DeleteOutlined } from '@ant-design/icons'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
@@ -26,6 +26,8 @@ interface ChatMessageProps {
   }
   streaming?: boolean
   error?: { message: string; type: string; code?: string } | null
+  conversationId?: string
+  onDelete?: (messageId: string) => void
 }
 
 function getImageSrc(msg: any): string | null {
@@ -53,7 +55,7 @@ const markdownStyles: React.CSSProperties = {
   color: '#1a1a1a',
 }
 
-export default function ChatMessage({ message, streaming = false, error }: ChatMessageProps) {
+export default function ChatMessage({ message, streaming = false, error, conversationId, onDelete }: ChatMessageProps) {
   const [imgLoading, setImgLoading] = useState(true)
   const isUser = message.role === 'user'
   const meta = parseMeta(message.metadata)
@@ -210,20 +212,27 @@ export default function ChatMessage({ message, streaming = false, error }: ChatM
           </div>
         )}
 
-        {/* 元数据 - 紧凑显示 */}
-        {(meta.model || meta.duration) && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-            {meta.model && <Tag style={{ fontSize: 10, borderRadius: 4 }}>{meta.model}</Tag>}
-            {meta.duration && (
-              <Text type="secondary" style={{ fontSize: 10 }}>
-                <ClockCircleOutlined style={{ marginRight: 2 }} />{(meta.duration / 1000).toFixed(1)}s
-              </Text>
-            )}
-            {meta.imageModel && meta.imageModel !== meta.model && (
-              <Tag color="orange" style={{ fontSize: 10, borderRadius: 4 }}>{meta.imageModel}</Tag>
-            )}
-          </div>
-        )}
+        {/* 元数据 + 删除按钮 */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          {(meta.model || meta.duration) && (
+            <>
+              {meta.model && <Tag style={{ fontSize: 10, borderRadius: 4 }}>{meta.model}</Tag>}
+              {meta.duration && (
+                <Text type="secondary" style={{ fontSize: 10 }}>
+                  <ClockCircleOutlined style={{ marginRight: 2 }} />{(meta.duration / 1000).toFixed(1)}s
+                </Text>
+              )}
+              {meta.imageModel && meta.imageModel !== meta.model && (
+                <Tag color="orange" style={{ fontSize: 10, borderRadius: 4 }}>{meta.imageModel}</Tag>
+              )}
+            </>
+          )}
+          {!streaming && onDelete && (
+            <Button type="text" size="small" icon={<DeleteOutlined />}
+              onClick={() => onDelete(message.id)}
+              style={{ fontSize: 10, color: '#999', padding: '0 4px', height: 20 }} />
+          )}
+        </div>
       </div>
     </div>
   )

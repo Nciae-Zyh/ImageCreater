@@ -295,6 +295,19 @@ export function registerChatHandlers(): void {
     }
   })
 
+  // 删除单条消息
+  ipcMain.handle('conversation:delete-message', async (_event, conversationId: string, messageId: string) => {
+    try {
+      const d = getDb()
+      d.run('DELETE FROM messages WHERE id = ? AND conversation_id = ?', [messageId, conversationId])
+      saveDatabase()
+      logger.info(`[Chat] 删除消息: ${messageId}`)
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: (error as Error).message }
+    }
+  })
+
   ipcMain.handle('conversation:get-images', async (_event, conversationId: string) => {
     try {
       const messages = getMessages(conversationId)
@@ -304,12 +317,12 @@ export function registerChatHandlers(): void {
         if (!m.image_url) continue
         logger.info(`[Chat] 历史消息 ${m.id}: role=${m.role}, image_url=${m.image_url}`)
         if (m.image_url.startsWith('http')) {
-          // R2/OSS 远程图片：直接返回 URL，不转 base64
           images.push({ id: m.id, content: m.content.slice(0, 50), imageUrl: m.image_url, timestamp: m.timestamp })
         } else {
-          // 本地图片：转 base64
-          const filePath = m.image_url.replace('file://', '').replace('app-image://', '')
-          const base64 = getImageAsBase64(filePath)
+          const filename = m.image_url.replace('file://', '').replace('app-image://', '')
+          const fullPath = path.join(IMAGES_DIR, filename)
+          const base64 = getImageAsBase64(fullPath)
+          logger.info(`[Chat] 本地图片: path=${fullPath}, 成功=${!!base64}`)
           if (base64) {
             images.push({ id: m.id, content: m.content.slice(0, 50), imageBase64: base64, timestamp: m.timestamp })
           }
