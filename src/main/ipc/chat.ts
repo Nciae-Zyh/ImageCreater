@@ -250,7 +250,13 @@ export function registerChatHandlers(): void {
         data.message, data.hasImage, baseUrl, apiKey,
         record.chatModel || 'gpt-4o', conversationHistory
       )
-      return { success: true, data: intent }
+      // 如果是编辑意图，检查历史图片数量
+      let imageCount = 0
+      if (intent.action === 'edit' && data.conversationId) {
+        const images = getMessages(data.conversationId).filter((m) => m.image_url)
+        imageCount = images.length
+      }
+      return { success: true, data: { ...intent, imageCount } }
     } catch (error) {
       return { success: false, error: (error as Error).message }
     }
