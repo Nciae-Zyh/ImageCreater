@@ -29,7 +29,7 @@ export const geminiHandler: ProviderHandler = {
     const requestBody = { model, messages: [{ role: 'user', content }], max_tokens: 4096 }
     logger.info(`[Gemini] 视觉分析: POST ${chatUrl}`)
     logger.info(`[Gemini] 视觉参数: model=${model}, images=${images.length}, prompt="${prompt.slice(0, 100)}"`)
-    logger.info(`[Gemini] 请求头: Authorization=Bearer ${apiKey.slice(0, 8)}...`)
+    logger.info(`[Gemini] 请求头: Authorization=Bearer ${apiKey.slice(0, 3)}***`)
 
     const res = await fetch(chatUrl, {
       method: 'POST',
@@ -54,7 +54,7 @@ export const geminiHandler: ProviderHandler = {
 
     logger.info(`[Gemini] 图片生成: POST ${genUrl}`)
     logger.info(`[Gemini] 请求参数: ${JSON.stringify({ ...requestBody, contents: [{ parts: [{ text: prompt.slice(0, 100) + '...' }] }] })}`)
-    logger.info(`[Gemini] 请求头: x-goog-api-key=${apiKey.slice(0, 8)}...`)
+    logger.info(`[Gemini] 请求头: x-goog-api-key=${apiKey.slice(0, 3)}***`)
 
     const res = await fetch(genUrl, {
       method: 'POST',

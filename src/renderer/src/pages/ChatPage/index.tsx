@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Layout, Button, Space, Typography, Tag, Spin, message as antMessage } from 'antd'
-import { SettingOutlined, RobotOutlined, CheckOutlined } from '@ant-design/icons'
+import { SettingOutlined, RobotOutlined, CheckOutlined, FileTextOutlined } from '@ant-design/icons'
 import Sidebar from './components/Sidebar'
 import ChatMessage from '../../components/ChatMessage'
 import ChatInput from '../../components/ChatInput'
@@ -52,7 +52,24 @@ export default function ChatPage({ onOpenSettings }: ChatPageProps) {
     const modelSelection: ModelSelection = autoMode
       ? { mode: 'auto' }
       : { mode: 'manual', chatModel: selectedChatModel, visionModel: chatProvider?.visionModel, imageModel: selectedImageModel }
-    await sendMessage(content, imageData, modelSelection)
+    return await sendMessage(content, imageData, modelSelection)
+  }
+
+  // 打开图片选择器
+  const openImagePicker = async (content: string, imageData?: MessageImage[], lastSelected?: boolean) => {
+    if (!activeConversationId) return
+    let histImgs: any[] = []
+    try {
+      const result = await window.electronAPI.conversations.getImages(activeConversationId)
+      if (result.success) histImgs = result.data || []
+    } catch (e) { console.error('[ChatPage] getImages 错误:', e) }
+    setImagePicker({
+      content, imageData,
+      histImages: histImgs,
+      selectedImageIds: lastSelected && histImgs.length > 0
+        ? new Set([histImgs[histImgs.length - 1].id])
+        : new Set()
+    })
   }
 
   const handleSend = async (content: string, imageData?: MessageImage[]) => {
@@ -80,21 +97,8 @@ export default function ChatPage({ onOpenSettings }: ChatPageProps) {
         await doSend(content, imageData)
         return
       }
-      // edit 或 generate：始终弹出图片选择器
-      let histImgs: any[] = []
-      try {
-        const result = await window.electronAPI.conversations.getImages(activeConversationId)
-        console.log(`[ChatPage] getImages:`, result)
-        if (result.success) histImgs = result.data || []
-      } catch (e) { console.error('[ChatPage] getImages 错误:', e) }
-      console.log(`[ChatPage] 意图=${action}, 历史图片数=${histImgs.length}`)
-      setImagePicker({
-        content, imageData,
-        histImages: histImgs,
-        selectedImageIds: action === 'edit' && histImgs.length > 0
-          ? new Set([histImgs[histImgs.length - 1].id])
-          : new Set()
-      })
+      // edit 或 generate：弹出图片选择器
+      await openImagePicker(content, imageData, action === 'edit')
     } catch (e) {
       console.error('[ChatPage] handleSend 错误:', e)
       await doSend(content, imageData)
@@ -115,7 +119,12 @@ export default function ChatPage({ onOpenSettings }: ChatPageProps) {
         data: img.imageBase64 || '', url: img.imageUrl
       }))
     setImagePicker(null)
-    await doSend(content, [...(imageData || []), ...selectedImgs])
+    const result = await doSend(content, [...(imageData || []), ...selectedImgs])
+    // 如果后端仍需用户选图（视觉分析再次失败），重新打开选择器
+    if (result?.data?.needUserSelect) {
+      antMessage.info('视觉分析无法确定，请手动选择图片')
+      await openImagePicker(content, imageData, true)
+    }
   }
 
   const toggleImageSelect = (id: string) => {
@@ -151,6 +160,20 @@ export default function ChatPage({ onOpenSettings }: ChatPageProps) {
               {chatProvider?.name || '未选择'} / {selectedChatModel || '未选择'}
               {selectedImageModel && <> + {selectedImageModel}</>}
             </Text>
+            <Button
+              type="text"
+              icon={<FileTextOutlined />}
+              onClick={async () => {
+                const result = await window.electronAPI.log.export()
+                if (result?.success) {
+                  antMessage.success('日志已导出')
+                } else if (result?.error !== '用户取消') {
+                  antMessage.error(result?.error || '导出失败')
+                }
+              }}
+              size="small"
+              title="导出日志"
+            />
             <Button type="text" icon={<SettingOutlined />} onClick={onOpenSettings} size="small" />
           </Space>
         </Header>

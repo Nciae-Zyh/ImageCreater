@@ -25,7 +25,7 @@ export const openaiHandler: ProviderHandler = {
 
     logger.info(`[OpenAI] 视觉分析: POST ${baseUrl}/chat/completions`)
     logger.info(`[OpenAI] 视觉参数: model=${model}, images=${images.length}, prompt="${prompt.slice(0, 100)}"`)
-    logger.info(`[OpenAI] 请求头: Authorization=Bearer ${apiKey.slice(0, 8)}...`)
+    logger.info(`[OpenAI] 请求头: Authorization=Bearer ${apiKey.slice(0, 3)}***`)
 
     const res = await client.chat.completions.create({
       model, messages: [{ role: 'user', content }], max_tokens: 4096
@@ -41,7 +41,7 @@ export const openaiHandler: ProviderHandler = {
 
     logger.info(`[OpenAI] 图片生成: POST ${baseUrl}/images/generations`)
     logger.info(`[OpenAI] 请求参数: model=${model}, prompt="${prompt.slice(0, 80)}..."`)
-    logger.info(`[OpenAI] 请求头: Authorization=Bearer ${apiKey.slice(0, 8)}...`)
+    logger.info(`[OpenAI] 请求头: Authorization=Bearer ${apiKey.slice(0, 3)}***`)
 
     const result = await client.images.generate({ model, prompt })
 
@@ -62,7 +62,7 @@ export const openaiHandler: ProviderHandler = {
 
     logger.info(`[OpenAI] 图片编辑: POST ${baseUrl}/images/edits`)
     logger.info(`[OpenAI] 请求参数: model=${model}, prompt="${prompt}", images=${imageFiles.length}张`)
-    logger.info(`[OpenAI] 请求头: Authorization=Bearer ${apiKey.slice(0, 8)}...`)
+    logger.info(`[OpenAI] 请求头: Authorization=Bearer ${apiKey.slice(0, 3)}***`)
 
     const response = await client.images.edit({
       model,

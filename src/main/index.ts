@@ -1,14 +1,52 @@
-import { app, BrowserWindow, protocol, net } from 'electron'
+import { app, BrowserWindow, protocol, net, Tray, Menu, nativeImage } from 'electron'
 import path from 'path'
 import fs from 'fs'
 import { registerApiKeyHandlers } from './ipc/apiKeys'
 import { registerChatHandlers } from './ipc/chat'
 import { registerSettingsHandlers } from './ipc/settings'
+import { registerLogHandlers } from './ipc/log'
 import { initDatabase } from './store/database'
 import { getImagesDir, getStorageInfo } from './utils/paths'
-import { logger } from './utils/logger'
+import { logger, cleanOldLogs, readLogs } from './utils/logger'
 
 let mainWindow: BrowserWindow | null = null
+let tray: Tray | null = null
+
+function createTray(): void {
+  const iconPath = path.join(__dirname, '../../build/tray-icon.png')
+  const icon = fs.existsSync(iconPath)
+    ? nativeImage.createFromPath(iconPath)
+    : nativeImage.createEmpty()
+
+  tray = new Tray(icon)
+  tray.setToolTip('ImageCreater')
+
+  const contextMenu = Menu.buildFromTemplate([
+    { label: '显示窗口', click: () => mainWindow?.show() },
+    { type: 'separator' },
+    {
+      label: '导出日志', click: async () => {
+        if (!mainWindow) return
+        const { dialog } = require('electron')
+        const content = readLogs()
+        if (!content) return
+        const result = await dialog.showSaveDialog(mainWindow, {
+          title: '导出日志',
+          defaultPath: `image-creater-logs-${new Date().toISOString().slice(0, 10)}.log`,
+          filters: [{ name: '日志文件', extensions: ['log'] }]
+        })
+        if (!result.canceled && result.filePath) {
+          fs.writeFileSync(result.filePath, content, 'utf-8')
+        }
+      }
+    },
+    { type: 'separator' },
+    { label: '退出', click: () => app.quit() }
+  ])
+
+  tray.setContextMenu(contextMenu)
+  tray.on('click', () => mainWindow?.show())
+}
 
 function createWindow(): void {
   const isMac = process.platform === 'darwin'
@@ -69,7 +107,13 @@ app.whenReady().then(async () => {
   registerApiKeyHandlers()
   registerChatHandlers()
   registerSettingsHandlers()
+  registerLogHandlers()
+
+  // 启动时清理 30 天前的日志
+  try { cleanOldLogs(30) } catch {}
+
   createWindow()
+  createTray()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
