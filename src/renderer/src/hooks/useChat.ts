@@ -109,7 +109,13 @@ export function useChat() {
           setStreamState((s) => ({ ...s, partialImage: b64 }))
           flushUpdate()
         } else if (raw.startsWith('[META]')) {
-          try { msgState.meta = JSON.parse(raw.slice(6)) } catch {}
+          try {
+            msgState.meta = JSON.parse(raw.slice(6))
+            // 如果后端需要用户选择图片，设置特殊标记
+            if (msgState.meta.needUserSelect) {
+              msgState.textContent = '[NEED_USER_SELECT]'
+            }
+          } catch {}
           setStreamState((s) => ({ ...s, meta: msgState.meta }))
           flushUpdate()
         } else if (raw.startsWith('[ERROR]')) {
