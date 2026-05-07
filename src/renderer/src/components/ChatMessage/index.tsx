@@ -103,43 +103,32 @@ export default function ChatMessage({ message, streaming = false, error }: ChatM
         <RobotOutlined style={{ color: '#666', fontSize: 16 }} />
       </div>
       <div style={{ maxWidth: '70%', display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {/* 步骤进度区域 */}
+        {/* 步骤进度区域 - Claude Code 风格 */}
         {steps.length > 0 && (
           <div style={{ background: '#f6f8fa', borderRadius: 8, padding: '8px 12px', border: '1px solid #e8e8e8' }}>
-            <Collapse
-              defaultActiveKey={streaming ? ['steps'] : []}
-              ghost
-              size="small"
-              items={[{
-                key: 'steps',
-                label: (
-                  <Space size={4}>
-                    {streaming ? <LoadingOutlined style={{ color: '#1677ff' }} /> : <CheckCircleOutlined style={{ color: '#52c41a' }} />}
-                    <Text style={{ fontSize: 12, color: '#666' }}>
-                      {streaming ? `处理中... (${steps.length} 步)` : `处理完成 (${steps.length} 步)`}
-                    </Text>
-                  </Space>
-                ),
-                children: (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    {steps.map((step, i) => (
-                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <Tag color={i === steps.length - 1 && !streaming ? 'green' : 'blue'} style={{ fontSize: 10, margin: 0 }}>
-                          {i + 1}
-                        </Tag>
-                        <Text style={{ fontSize: 12, color: '#555' }}>{step}</Text>
-                      </div>
-                    ))}
-                    {streaming && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <Spin size="small" />
-                        <Text type="secondary" style={{ fontSize: 12 }}>处理中...</Text>
-                      </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: streaming ? 8 : 0 }}>
+              {streaming ? <LoadingOutlined style={{ color: '#1677ff' }} /> : <CheckCircleOutlined style={{ color: '#52c41a' }} />}
+              <Text style={{ fontSize: 12, color: '#666', fontWeight: 500 }}>
+                {streaming ? `处理中... (${steps.length} 步)` : `处理完成 (${steps.length} 步)`}
+              </Text>
+            </div>
+            {/* 展开的步骤列表 */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+              {steps.map((step, i) => {
+                const isLast = i === steps.length - 1
+                const isDone = !streaming || !isLast
+                return (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, opacity: isDone ? 1 : 0.7 }}>
+                    {isDone ? (
+                      <CheckCircleOutlined style={{ fontSize: 10, color: '#52c41a', flexShrink: 0 }} />
+                    ) : (
+                      <Spin size="small" />
                     )}
+                    <Text style={{ fontSize: 12, color: isDone ? '#555' : '#1677ff' }}>{step}</Text>
                   </div>
                 )
-              }]}
-            />
+              })}
+            </div>
           </div>
         )}
 
@@ -221,12 +210,19 @@ export default function ChatMessage({ message, streaming = false, error }: ChatM
           </div>
         )}
 
-        {/* 元数据 */}
+        {/* 元数据 - 紧凑显示 */}
         {(meta.model || meta.duration) && (
-          <Space size={4} wrap>
-            {meta.model && <Tag style={{ fontSize: 10 }}>{meta.model}</Tag>}
-            {meta.duration && <Tag icon={<ClockCircleOutlined />} style={{ fontSize: 10 }}>{(meta.duration / 1000).toFixed(1)}s</Tag>}
-          </Space>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            {meta.model && <Tag style={{ fontSize: 10, borderRadius: 4 }}>{meta.model}</Tag>}
+            {meta.duration && (
+              <Text type="secondary" style={{ fontSize: 10 }}>
+                <ClockCircleOutlined style={{ marginRight: 2 }} />{(meta.duration / 1000).toFixed(1)}s
+              </Text>
+            )}
+            {meta.imageModel && meta.imageModel !== meta.model && (
+              <Tag color="orange" style={{ fontSize: 10, borderRadius: 4 }}>{meta.imageModel}</Tag>
+            )}
+          </div>
         )}
       </div>
     </div>
