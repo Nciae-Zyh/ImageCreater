@@ -11,7 +11,9 @@ try {
     CHAT: {
       SEND: 'chat:send',
       STREAM: 'chat:stream',
-      CANCEL: 'chat:cancel'
+      CANCEL: 'chat:cancel',
+      ANALYZE_INTENT: 'chat:analyze-intent',
+      OPTIMIZE_PROMPT: 'chat:optimize-prompt'
     },
     SETTINGS: {
       GET: 'settings:get',
@@ -49,6 +51,7 @@ try {
     chat: {
       send: (data: {
         message: string; conversationId: string; providerId: string;
+        displayMessage?: string;
         imageProviderId?: string;
         imageData?: Array<{ type: 'image'; mimeType: string; data: string }>;
         modelSelection?: { mode: 'auto' | 'manual'; chatModel?: string; visionModel?: string; imageModel?: string }
@@ -61,7 +64,14 @@ try {
       cancel: (conversationId: string) =>
         ipcRenderer.send(IPC_CHANNELS.CHAT.CANCEL, conversationId),
       analyzeIntent: (data: { message: string; providerId: string; hasImage: boolean; conversationId?: string }) =>
-        ipcRenderer.invoke(IPC_CHANNELS.CHAT.ANALYZE_INTENT, data)
+        ipcRenderer.invoke(IPC_CHANNELS.CHAT.ANALYZE_INTENT, data),
+      optimizePrompt: (data: {
+        message: string
+        providerId: string
+        action: 'generate' | 'edit'
+        selectedImageHints?: string[]
+        selectedImages?: Array<{ type: 'image'; mimeType: string; data: string; url?: string }>
+      }) => ipcRenderer.invoke(IPC_CHANNELS.CHAT.OPTIMIZE_PROMPT, data)
     },
 
     conversations: {

@@ -4,6 +4,7 @@ import path from 'path'
 import { IPC_CHANNELS } from '../../../shared/ipc-channels'
 import { routeRequest, cancelChatStream } from '../services/aiRouter'
 import { classifyIntentAI } from '../services/intentClassifier'
+import { optimizePrompt } from '../services/promptOptimizer'
 import { getDecryptedKey } from '../services/apiKeyManager'
 import {
   saveConversation, saveMessage, getAllConversations,
@@ -19,11 +20,19 @@ import type { ModelSelection, MessageImage } from '../../../shared/types'
 
 interface ChatSendRequest {
   message: string
+  displayMessage?: string
   conversationId: string
   providerId: string
   imageProviderId?: string
   imageData?: MessageImage[]
   modelSelection?: ModelSelection
+}
+
+interface PromptOptimizeImage {
+  type: 'image'
+  mimeType: string
+  data: string
+  url?: string
 }
 
 interface ChatStreamPayload {
@@ -116,13 +125,15 @@ export function registerChatHandlers(): void {
           logger.info(`[Chat] 用户上传 ${userImageUrls.length} 张图片`)
         }
 
+        const userDisplayMessage = (request.displayMessage || request.message || '').trim()
+
         // 保存用户消息（包含图片 URL）
         const userMsgId = crypto.randomUUID()
         saveMessage({
           id: userMsgId,
           conversationId: request.conversationId,
           role: 'user',
-          content: request.message,
+          content: userDisplayMessage || request.message,
           type: request.imageData?.length ? 'mixed' : 'text',
           imageData: request.imageData ? JSON.stringify(request.imageData) : undefined,
           imageUrl: userImageUrls.length > 0 ? userImageUrls[0] : undefined,
@@ -152,6 +163,7 @@ export function registerChatHandlers(): void {
             needUserSelect: true,
             steps: result.metadata.steps,
             prompt: result.optimizedPrompt || request.message,
+            originalPrompt: userDisplayMessage || request.message,
             displayContent: '视觉分析无法确定要编辑的图片，请在下方选择。'
           }
           saveMessage({
@@ -178,6 +190,7 @@ export function registerChatHandlers(): void {
             action: result.action,
             needUserSelect: true,
             prompt: result.optimizedPrompt || request.message,
+            originalPrompt: userDisplayMessage || request.message,
             optimizedPrompt: result.optimizedPrompt || request.message,
             displayContent: '视觉分析无法确定要编辑的图片，请在下方选择。'
           })}`)
@@ -242,6 +255,7 @@ export function registerChatHandlers(): void {
         const msgMetadata = {
           ...result.metadata,
           optimizedPrompt: result.optimizedPrompt,
+          originalPrompt: userDisplayMessage || request.message,
           prompt: result.optimizedPrompt || request.message
         }
         saveMessage({
@@ -257,7 +271,7 @@ export function registerChatHandlers(): void {
 
         saveConversation({
           id: request.conversationId,
-          title: request.message.slice(0, 20) + (request.message.length > 20 ? '...' : ''),
+          title: (userDisplayMessage || request.message).slice(0, 20) + ((userDisplayMessage || request.message).length > 20 ? '...' : ''),
           providerId: request.providerId,
           model: result.metadata.chatModel,
           createdAt: Date.now(),
@@ -308,6 +322,38 @@ export function registerChatHandlers(): void {
         imageCount = images.length
       }
       return { success: true, data: { ...intent, imageCount } }
+    } catch (error) {
+      return { success: false, error: (error as Error).message }
+    }
+  })
+
+  // Prompt 优化：仅文本模型，不执行生图
+  ipcMain.handle(IPC_CHANNELS.CHAT.OPTIMIZE_PROMPT, async (_event, data: {
+    message: string
+    providerId: string
+    action: 'generate' | 'edit'
+    selectedImageHints?: string[]
+    selectedImages?: PromptOptimizeImage[]
+  }) => {
+    try {
+      const { baseUrl, apiKey, record } = await getDecryptedKey(data.providerId)
+      const optimizedResult = await optimizePrompt({
+        userMessage: data.message,
+        action: data.action === 'edit' ? 'edit' : 'generate',
+        baseUrl,
+        apiKey,
+        model: record.chatModel || 'gpt-4o-mini',
+        selectedImageHints: data.selectedImageHints,
+        selectedImages: data.selectedImages
+      })
+      return {
+        success: true,
+        data: {
+          optimizedPrompt: optimizedResult.optimizedPrompt,
+          candidates: optimizedResult.candidates,
+          recommendedIndex: optimizedResult.recommendedIndex
+        }
+      }
     } catch (error) {
       return { success: false, error: (error as Error).message }
     }

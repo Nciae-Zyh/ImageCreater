@@ -9,7 +9,8 @@ export const IPC_CHANNELS = {
     SEND: 'chat:send',
     STREAM: 'chat:stream',
     CANCEL: 'chat:cancel',
-    ANALYZE_INTENT: 'chat:analyze-intent'
+    ANALYZE_INTENT: 'chat:analyze-intent',
+    OPTIMIZE_PROMPT: 'chat:optimize-prompt'
   },
   IMAGE: {
     GENERATE: 'image:generate'

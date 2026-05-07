@@ -37,6 +37,17 @@ interface ChatMessageProps {
   onToggleImage?: (id: string) => void
   onConfirmImages?: () => void
   onCancelSelect?: () => void
+  // 内联 prompt 选择器
+  promptChoice?: {
+    originalPrompt: string
+    optimizedPrompt: string
+    candidates?: Array<{ prompt: string; why: string }>
+    recommendedIndex?: number
+  } | null
+  onChooseOptimizedPrompt?: (candidateIndex?: number) => void
+  onChooseOriginalPrompt?: () => void
+  onCancelPromptChoice?: () => void
+  promptOptimizing?: boolean
 }
 
 function getImageSrc(msg: any): string | null {
@@ -67,14 +78,18 @@ const markdownStyles: React.CSSProperties = {
 export default function ChatMessage({
   message, streaming = false, error, conversationId, onDelete,
   needUserSelect, histImages, selectedImageIds, isLatest,
-  onToggleImage, onConfirmImages, onCancelSelect
+  onToggleImage, onConfirmImages, onCancelSelect,
+  promptChoice, onChooseOptimizedPrompt, onChooseOriginalPrompt, onCancelPromptChoice,
+  promptOptimizing
 }: ChatMessageProps) {
   const [imgLoading, setImgLoading] = useState(true)
   const isUser = message.role === 'user'
   const meta = parseMeta(message.metadata)
   const imageSrc = getImageSrc(message)
-  // needUserSelect 时显示 metadata 中的 displayContent，而非原始 prompt
-  const displayContent = (needUserSelect && meta.displayContent) ? meta.displayContent : message.content
+  // needUserSelect 时优先保留真实 prompt（避免被固定提示文案覆盖）
+  const displayContent = needUserSelect
+    ? (message.content || meta.originalPrompt || meta.prompt || meta.optimizedPrompt || meta.displayContent || '')
+    : message.content
   const steps = message.steps || []
   const hasContent = !!message.content
   const hasImage = !!imageSrc
@@ -147,6 +162,65 @@ export default function ChatMessage({
                 )
               })}
             </div>
+          </div>
+        )}
+
+        {/* 内联 Prompt 选择器 */}
+        {isLatest && promptOptimizing && !promptChoice && (
+          <div style={{ background: '#f6f8fa', borderRadius: 8, padding: 12, border: '1px solid #e8e8e8' }}>
+            <Space>
+              <Spin size="small" />
+              <Text type="secondary" style={{ fontSize: 12 }}>正在优化 Prompt...</Text>
+            </Space>
+          </div>
+        )}
+
+        {isLatest && promptChoice && (
+          <div style={{ background: '#f6f8fa', borderRadius: 8, padding: 12, border: '1px solid #e8e8e8' }}>
+            <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 8 }}>
+              已生成候选 Prompt，请选择发送内容：
+            </Text>
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ background: '#fff', border: '1px solid #d9d9d9', borderRadius: 8, padding: 10, marginBottom: 10 }}>
+                <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 6 }}>原始 Prompt</Text>
+                <Text style={{ fontSize: 12, whiteSpace: 'pre-wrap' }}>{promptChoice.originalPrompt}</Text>
+              </div>
+              {(promptChoice.candidates && promptChoice.candidates.length > 0) ? (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 8 }}>
+                  {promptChoice.candidates.map((candidate, idx) => {
+                    const isRecommended = idx === (promptChoice.recommendedIndex ?? 0)
+                    return (
+                      <div key={idx} style={{
+                        background: '#fff',
+                        border: isRecommended ? '1px solid #1677ff' : '1px solid #d9d9d9',
+                        borderRadius: 8,
+                        padding: 10
+                      }}>
+                        <Space style={{ marginBottom: 6, display: 'flex', justifyContent: 'space-between' }}>
+                          <Text style={{ fontSize: 12, color: isRecommended ? '#1677ff' : '#666' }}>
+                            {isRecommended ? `优化 Prompt ${idx + 1}（推荐）` : `优化 Prompt ${idx + 1}`}
+                          </Text>
+                          {candidate.why && <Text type="secondary" style={{ fontSize: 11 }}>{candidate.why}</Text>}
+                        </Space>
+                        <Text style={{ fontSize: 12, whiteSpace: 'pre-wrap', display: 'block', marginBottom: 8 }}>{candidate.prompt}</Text>
+                        <Button size="small" type={isRecommended ? 'primary' : 'default'} onClick={() => onChooseOptimizedPrompt?.(idx)}>
+                          使用这个优化 Prompt
+                        </Button>
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : (
+                <div style={{ background: '#fff', border: '1px solid #91caff', borderRadius: 8, padding: 10 }}>
+                  <Text style={{ fontSize: 12, color: '#1677ff', display: 'block', marginBottom: 6 }}>优化 Prompt</Text>
+                  <Text style={{ fontSize: 12, whiteSpace: 'pre-wrap' }}>{promptChoice.optimizedPrompt}</Text>
+                </div>
+              )}
+            </div>
+            <Space>
+              <Button size="small" onClick={onChooseOriginalPrompt}>使用原始 Prompt</Button>
+              <Button size="small" onClick={onCancelPromptChoice}>取消</Button>
+            </Space>
           </div>
         )}
 

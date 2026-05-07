@@ -111,9 +111,7 @@ export function useChat() {
       } else if (chunk.startsWith('[META]')) {
         let meta = current.meta
         try { meta = JSON.parse(chunk.slice(6)) } catch {}
-        const textContent = meta?.needUserSelect
-          ? '视觉分析无法确定要编辑的图片，请在下方选择。'
-          : current.textContent
+        const textContent = current.textContent || meta?.prompt || meta?.optimizedPrompt || ''
         next = { ...current, meta, textContent }
       } else if (chunk.startsWith('[ERROR]')) {
         try {
@@ -146,7 +144,7 @@ export function useChat() {
     content: string,
     imageData?: MessageImage[],
     modelSelection?: ModelSelection,
-    options?: { skipUserMessage?: boolean }
+    options?: { skipUserMessage?: boolean; displayUserMessage?: string }
   ) => {
     const chatProviderId = activeProviderId
     const imgProviderId = imageProviderId || activeProviderId
@@ -169,11 +167,12 @@ export function useChat() {
     setConversationStreaming(conversationId, true)
 
     const skipFrontend = options?.skipUserMessage
+    const displayUserMessage = options?.displayUserMessage || content
     if (!skipFrontend) {
       addMessage(conversationId, {
         id: crypto.randomUUID(),
         role: 'user',
-        content,
+        content: displayUserMessage,
         type: imageData?.length ? 'mixed' : 'text',
         imageData,
         timestamp: Date.now()
@@ -202,6 +201,7 @@ export function useChat() {
 
       const result = await window.electronAPI.chat.send({
         message: content,
+        displayMessage: displayUserMessage,
         conversationId,
         providerId: chatProviderId,
         imageProviderId: imgProviderId,

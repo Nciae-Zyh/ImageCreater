@@ -17,8 +17,13 @@ interface ChatPageProps {
   onOpenSettings: () => void
 }
 
+interface PromptCandidate {
+  prompt: string
+  why: string
+}
+
 export default function ChatPage({ onOpenSettings }: ChatPageProps) {
-  const { conversations, activeConversationId, createConversation, switchConversation, loadConversations } = useConversationStore()
+  const { conversations, activeConversationId, createConversation, switchConversation, loadConversations, addMessage } = useConversationStore()
   const { activeProviderId, imageProviderId, providers, selectedChatModel, selectedImageModel } = useProviderStore()
   const { sendMessage, isStreaming, cancelStream, streamState, streamingByConversation } = useChat()
 
@@ -26,7 +31,26 @@ export default function ChatPage({ onOpenSettings }: ChatPageProps) {
   // 图片选择器数据（不渲染浮动 UI，仅管理状态）
   const [imagePicker, setImagePicker] = useState<{
     content: string; imageData?: MessageImage[];
-    histImages: any[]; selectedImageIds: Set<string>
+    histImages: any[]; selectedImageIds: Set<string>; userMessageSaved?: boolean
+  } | null>(null)
+  const [promptPicker, setPromptPicker] = useState<{
+    originalPrompt: string
+    optimizedPrompt: string
+    candidates: PromptCandidate[]
+    recommendedIndex: number
+    imageData?: MessageImage[]
+    skipUserMessage?: boolean
+    shouldKeepOriginalInHistory?: boolean
+  } | null>(null)
+  const [isPromptOptimizing, setIsPromptOptimizing] = useState(false)
+  const [assistantPromptUi, setAssistantPromptUi] = useState<{
+    originalPrompt: string
+    statusText?: string
+    optimizedPrompt?: string
+    candidates?: PromptCandidate[]
+    recommendedIndex?: number
+    loading: boolean
+    error?: string
   } | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -39,6 +63,9 @@ export default function ChatPage({ onOpenSettings }: ChatPageProps) {
   // 切换对话时仅重置图片选择器，生成状态按会话独立维护
   useEffect(() => {
     setImagePicker(null)
+    setPromptPicker(null)
+    setIsPromptOptimizing(false)
+    setAssistantPromptUi(null)
   }, [activeConversationId])
 
   const restorePickerFromLatestMessage = useCallback(async () => {
@@ -67,7 +94,7 @@ export default function ChatPage({ onOpenSettings }: ChatPageProps) {
     if (!promptFromMeta?.trim()) {
       promptFromMeta = lastUserMessage?.content || ''
     }
-    await openImagePicker(promptFromMeta, undefined, true)
+    await openImagePicker(promptFromMeta, undefined, true, true)
   }, [activeConversation, imagePicker, activeConversationId])
 
   // 加载历史消息后，如果最后一条助手消息需要用户选图，自动恢复选择器
@@ -87,14 +114,75 @@ export default function ChatPage({ onOpenSettings }: ChatPageProps) {
     switchConversation(id)
   }
 
-  const doSend = async (content: string, imageData?: MessageImage[], options?: { skipUserMessage?: boolean }) => {
+  const doSend = async (
+    content: string,
+    imageData?: MessageImage[],
+    options?: { skipUserMessage?: boolean; displayUserMessage?: string }
+  ) => {
     const modelSelection: ModelSelection = autoMode
       ? { mode: 'auto' }
       : { mode: 'manual', chatModel: selectedChatModel, visionModel: chatProvider?.visionModel, imageModel: selectedImageModel }
     return await sendMessage(content, imageData, modelSelection, options)
   }
 
-  const openImagePicker = async (content: string, imageData?: MessageImage[], lastSelected?: boolean) => {
+  const optimizePromptText = async (
+    message: string,
+    action: 'generate' | 'edit',
+    selectedImageHints?: string[],
+    selectedImages?: MessageImage[]
+  ) => {
+    if (!activeProviderId) {
+      return {
+        optimizedPrompt: message,
+        candidates: [{ prompt: message, why: '保留原始输入' }],
+        recommendedIndex: 0
+      }
+    }
+    setIsPromptOptimizing(true)
+    try {
+      const result = await window.electronAPI.chat.optimizePrompt({
+        message,
+        providerId: activeProviderId,
+        action,
+        selectedImageHints,
+        selectedImages
+      })
+      if (result?.success && result?.data?.optimizedPrompt) {
+        const candidatesRaw = Array.isArray(result?.data?.candidates) ? result.data.candidates : []
+        const candidates = candidatesRaw
+          .map((item: any) => ({
+            prompt: String(item?.prompt || '').trim(),
+            why: String(item?.why || '').trim()
+          }))
+          .filter((item: PromptCandidate) => !!item.prompt)
+        const recommendedIndexRaw = Number.isInteger(result?.data?.recommendedIndex) ? result.data.recommendedIndex : 0
+        const safeRecommendedIndex = candidates.length > 0
+          ? Math.max(0, Math.min(recommendedIndexRaw, candidates.length - 1))
+          : 0
+        return {
+          optimizedPrompt: result.data.optimizedPrompt as string,
+          candidates: candidates.length > 0 ? candidates : [{ prompt: result.data.optimizedPrompt as string, why: '模型推荐' }],
+          recommendedIndex: safeRecommendedIndex
+        }
+      }
+    } catch (e) {
+      console.error('[ChatPage] optimizePrompt 错误:', e)
+    } finally {
+      setIsPromptOptimizing(false)
+    }
+    return {
+      optimizedPrompt: message,
+      candidates: [{ prompt: message, why: '优化失败，保留原始输入' }],
+      recommendedIndex: 0
+    }
+  }
+
+  const openImagePicker = async (
+    content: string,
+    imageData?: MessageImage[],
+    lastSelected?: boolean,
+    userMessageSaved?: boolean
+  ) => {
     console.log('[ChatPage] openImagePicker 调用', { content: content?.slice(0, 50), activeConversationId })
     if (!activeConversationId) return
     let histImgs: any[] = []
@@ -107,6 +195,7 @@ export default function ChatPage({ onOpenSettings }: ChatPageProps) {
     setImagePicker({
       content, imageData,
       histImages: histImgs,
+      userMessageSaved: !!userMessageSaved,
       selectedImageIds: lastSelected && histImgs.length > 0
         ? new Set([histImgs[histImgs.length - 1].id])
         : new Set()
@@ -114,46 +203,109 @@ export default function ChatPage({ onOpenSettings }: ChatPageProps) {
   }
 
   const handleSend = async (content: string, imageData?: MessageImage[]) => {
-    if (imageData && imageData.length > 0) {
-      const result = await doSend(content, imageData)
-      if (result?.data?.needUserSelect) {
-        antMessage.info('视觉分析无法确定，请手动选择图片')
-        await openImagePicker(content, imageData, true)
-      }
-      return
-    }
     if (!activeProviderId || !activeConversationId) {
       await doSend(content, imageData)
       return
     }
+
+    // 用户消息立即显示，后续流程在助手侧渐进展示
+    addMessage(activeConversationId, {
+      id: crypto.randomUUID(),
+      role: 'user',
+      content,
+      type: imageData?.length ? 'mixed' : 'text',
+      imageData,
+      timestamp: Date.now()
+    } as any)
+
+    setAssistantPromptUi({ originalPrompt: content, loading: true, statusText: '正在分析意图...' })
     try {
       const intentResult = await window.electronAPI.chat.analyzeIntent({
-        message: content, providerId: activeProviderId, hasImage: false,
+        message: content, providerId: activeProviderId, hasImage: !!(imageData && imageData.length > 0),
         conversationId: activeConversationId || undefined
       })
       if (!intentResult.success) {
-        const result = await doSend(content, imageData)
-        if (result?.data?.needUserSelect) {
-          antMessage.info('视觉分析无法确定，请手动选择图片')
-          await openImagePicker(content, imageData, true)
-        }
+        setAssistantPromptUi({ originalPrompt: content, loading: true, statusText: '意图分析失败，正在直接优化 Prompt...' })
+        const optimized = await optimizePromptText(content, 'generate')
+        setPromptPicker({
+          originalPrompt: content,
+          optimizedPrompt: optimized.optimizedPrompt,
+          candidates: optimized.candidates,
+          recommendedIndex: optimized.recommendedIndex,
+          imageData,
+          skipUserMessage: true,
+          shouldKeepOriginalInHistory: true
+        })
+        setAssistantPromptUi({
+          originalPrompt: content,
+          optimizedPrompt: optimized.optimizedPrompt,
+          candidates: optimized.candidates,
+          recommendedIndex: optimized.recommendedIndex,
+          loading: false
+        })
         return
       }
       const action = intentResult.data?.action || 'chat'
       if (action === 'chat' || action === 'analyze') {
-        await doSend(content, imageData)
+        setAssistantPromptUi(null)
+        await doSend(content, imageData, {
+          skipUserMessage: true,
+          displayUserMessage: content
+        })
         return
       }
-      await openImagePicker(content, imageData, action === 'edit')
+      if (action === 'generate') {
+        setAssistantPromptUi({ originalPrompt: content, loading: true, statusText: '意图识别为生成，正在优化 Prompt...' })
+        const optimized = await optimizePromptText(content, 'generate')
+        setPromptPicker({
+          originalPrompt: content,
+          optimizedPrompt: optimized.optimizedPrompt,
+          candidates: optimized.candidates,
+          recommendedIndex: optimized.recommendedIndex,
+          imageData,
+          skipUserMessage: true,
+          shouldKeepOriginalInHistory: true
+        })
+        setAssistantPromptUi({
+          originalPrompt: content,
+          statusText: '已生成候选 Prompt，请选择',
+          optimizedPrompt: optimized.optimizedPrompt,
+          candidates: optimized.candidates,
+          recommendedIndex: optimized.recommendedIndex,
+          loading: false
+        })
+        return
+      }
+      // action === edit：先选图，再做优化
+      setAssistantPromptUi({ originalPrompt: content, loading: false, statusText: '意图识别为编辑，请先选择图片' })
+      await openImagePicker(content, imageData, true, true)
     } catch (e) {
       console.error('[ChatPage] handleSend 错误:', e)
-      await doSend(content, imageData)
+      setAssistantPromptUi({ originalPrompt: content, loading: true, statusText: '意图分析失败，正在直接优化 Prompt...' })
+      const optimized = await optimizePromptText(content, 'generate')
+      setPromptPicker({
+        originalPrompt: content,
+        optimizedPrompt: optimized.optimizedPrompt,
+        candidates: optimized.candidates,
+        recommendedIndex: optimized.recommendedIndex,
+        imageData,
+        skipUserMessage: true,
+        shouldKeepOriginalInHistory: true
+      })
+      setAssistantPromptUi({
+        originalPrompt: content,
+        statusText: '已生成候选 Prompt，请选择',
+        optimizedPrompt: optimized.optimizedPrompt,
+        candidates: optimized.candidates,
+        recommendedIndex: optimized.recommendedIndex,
+        loading: false
+      })
     }
   }
 
   const handleConfirmImagePicker = async () => {
     if (!imagePicker) return
-    const { content, imageData, histImages, selectedImageIds } = imagePicker
+    const { content, imageData, histImages, selectedImageIds, userMessageSaved } = imagePicker
     if (selectedImageIds.size === 0) {
       antMessage.warning('请至少选择一张图片')
       return
@@ -164,20 +316,31 @@ export default function ChatPage({ onOpenSettings }: ChatPageProps) {
         type: 'image' as const, mimeType: 'image/png',
         data: img.imageBase64 || '', url: img.imageUrl
       }))
-    const convId = activeConversationId
     setImagePicker(null)
-    // skipUserMessage: 用户消息已在首次发送时保存，避免重复
-    const result = await doSend(content, [...(imageData || []), ...selectedImgs], { skipUserMessage: true })
-    // 等待对话和消息从 DB 完整加载
-    await loadConversations()
-    if (convId) await switchConversation(convId)
-    // 直接检查：IPC 返回 needUserSelect 或 DB 消息需要选图
-    const lastMsg = useConversationStore.getState().conversations
-      .find(c => c.id === convId)?.messages.slice(-1)[0]
-    if (result?.data?.needUserSelect || (lastMsg as any)?.needUserSelect) {
-      antMessage.info('视觉分析无法确定，请手动选择图片')
-      await openImagePicker(content, imageData, true)
-    }
+    const allImages = [...(imageData || []), ...selectedImgs]
+    const selectedHints = histImages
+      .filter((img) => selectedImageIds.has(img.id))
+      .map((img) => String(img.content || '').trim())
+      .filter(Boolean)
+    setAssistantPromptUi({ originalPrompt: content, loading: true, statusText: '已选图片，正在结合图片优化 Prompt...' })
+    const optimized = await optimizePromptText(content, 'edit', selectedHints, allImages)
+    setPromptPicker({
+      originalPrompt: content,
+      optimizedPrompt: optimized.optimizedPrompt,
+      candidates: optimized.candidates,
+      recommendedIndex: optimized.recommendedIndex,
+      imageData: allImages,
+      skipUserMessage: !!userMessageSaved,
+      shouldKeepOriginalInHistory: !userMessageSaved
+    })
+    setAssistantPromptUi({
+      originalPrompt: content,
+      statusText: '已生成候选 Prompt，请选择',
+      optimizedPrompt: optimized.optimizedPrompt,
+      candidates: optimized.candidates,
+      recommendedIndex: optimized.recommendedIndex,
+      loading: false
+    })
   }
 
   const toggleImageSelect = (id: string) => {
@@ -187,6 +350,35 @@ export default function ChatPage({ onOpenSettings }: ChatPageProps) {
       if (next.has(id)) next.delete(id); else next.add(id)
       return { ...prev, selectedImageIds: next }
     })
+  }
+
+  const confirmPromptSelection = async (payload: { useOptimized: boolean; candidateIndex?: number }) => {
+    if (!promptPicker) return
+    const candidatePrompt = typeof payload.candidateIndex === 'number'
+      ? promptPicker.candidates[payload.candidateIndex]?.prompt
+      : undefined
+    const sendContent = payload.useOptimized
+      ? (candidatePrompt || promptPicker.optimizedPrompt)
+      : promptPicker.originalPrompt
+    const sendImages = promptPicker.imageData
+    const skipUserMessage = promptPicker.skipUserMessage
+    const shouldKeepOriginalInHistory = promptPicker.shouldKeepOriginalInHistory
+    const originalPrompt = promptPicker.originalPrompt
+    setPromptPicker(null)
+    setAssistantPromptUi(null)
+
+    const result = await doSend(
+      sendContent,
+      sendImages,
+      {
+        skipUserMessage: !!skipUserMessage,
+        displayUserMessage: shouldKeepOriginalInHistory ? originalPrompt : undefined
+      }
+    )
+    if (result?.data?.needUserSelect) {
+      antMessage.info('视觉分析无法确定，请手动选择图片')
+      await openImagePicker(originalPrompt, sendImages, true, true)
+    }
   }
 
   return (
@@ -238,16 +430,13 @@ export default function ChatPage({ onOpenSettings }: ChatPageProps) {
         <Content style={{ display: 'flex', flexDirection: 'column', height: `calc(100vh - ${isMac ? 48 : 40}px)`, background: '#f5f5f5' }}>
           <div ref={scrollContainerRef} style={{ flex: 1, overflow: 'auto', padding: '24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
             {activeConversation?.messages.map((msg, idx) => {
-              const isLastAssistant = msg.role === 'assistant' && idx === activeConversation.messages.length - 1
               const isLatestMsg = idx === activeConversation.messages.length - 1
-              // 判断是否需要显示内联图片选择器
-              const showPicker = isLastAssistant && imagePicker && !isStreaming
               return (
                 <ChatMessage
                   key={msg.id}
                   message={msg}
-                  streaming={isLastAssistant && isStreaming}
-                  error={isLastAssistant ? streamState.error : null}
+                  streaming={msg.role === 'assistant' && idx === activeConversation.messages.length - 1 && isStreaming}
+                  error={msg.role === 'assistant' && idx === activeConversation.messages.length - 1 ? streamState.error : null}
                   conversationId={activeConversationId || undefined}
                   onDelete={async (msgId) => {
                     if (activeConversationId) {
@@ -255,16 +444,57 @@ export default function ChatPage({ onOpenSettings }: ChatPageProps) {
                       loadConversations()
                     }
                   }}
-                  needUserSelect={showPicker}
-                  histImages={showPicker ? imagePicker.histImages : undefined}
-                  selectedImageIds={showPicker ? imagePicker.selectedImageIds : undefined}
                   isLatest={isLatestMsg}
-                  onToggleImage={showPicker ? toggleImageSelect : undefined}
-                  onConfirmImages={showPicker ? handleConfirmImagePicker : undefined}
-                  onCancelSelect={showPicker ? () => setImagePicker(null) : undefined}
                 />
               )
             })}
+
+            {imagePicker && !isStreaming && (
+              <ChatMessage
+                message={{
+                  id: `assistant-image-picker-${activeConversationId || 'tmp'}`,
+                  role: 'assistant',
+                  content: assistantPromptUi?.statusText || '请选择要编辑的图片：',
+                  type: 'text',
+                  timestamp: Date.now()
+                }}
+                isLatest
+                needUserSelect
+                histImages={imagePicker.histImages}
+                selectedImageIds={imagePicker.selectedImageIds}
+                onToggleImage={toggleImageSelect}
+                onConfirmImages={handleConfirmImagePicker}
+                onCancelSelect={() => setImagePicker(null)}
+              />
+            )}
+
+            {assistantPromptUi && !isStreaming && (assistantPromptUi.loading || !!assistantPromptUi.optimizedPrompt) && (
+              <ChatMessage
+                message={{
+                  id: `assistant-prompt-ui-${activeConversationId || 'tmp'}`,
+                  role: 'assistant',
+                  content: assistantPromptUi.loading
+                    ? (assistantPromptUi.statusText || '正在分析意图与优化 Prompt...')
+                    : (assistantPromptUi.statusText || ''),
+                  type: 'text',
+                  timestamp: Date.now()
+                }}
+                isLatest
+                promptOptimizing={assistantPromptUi.loading}
+                promptChoice={!assistantPromptUi.loading && assistantPromptUi.optimizedPrompt ? {
+                  originalPrompt: assistantPromptUi.originalPrompt,
+                  optimizedPrompt: assistantPromptUi.optimizedPrompt,
+                  candidates: assistantPromptUi.candidates,
+                  recommendedIndex: assistantPromptUi.recommendedIndex
+                } : null}
+                onChooseOptimizedPrompt={!assistantPromptUi.loading && assistantPromptUi.optimizedPrompt ? (candidateIndex) => confirmPromptSelection({ useOptimized: true, candidateIndex }) : undefined}
+                onChooseOriginalPrompt={!assistantPromptUi.loading && assistantPromptUi.optimizedPrompt ? () => confirmPromptSelection({ useOptimized: false }) : undefined}
+                onCancelPromptChoice={!assistantPromptUi.loading && assistantPromptUi.optimizedPrompt ? () => {
+                  setPromptPicker(null)
+                  setAssistantPromptUi(null)
+                } : undefined}
+              />
+            )}
 
             {(!activeConversation || activeConversation.messages.length === 0) && (
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#999' }}>
