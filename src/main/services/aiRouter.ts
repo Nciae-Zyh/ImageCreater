@@ -297,9 +297,7 @@ export async function routeRequest(request: RouterRequest): Promise<RouterRespon
             }
           }
           if (editImages.length === 0) {
-            step('视觉无法确定，使用最新图片')
-            const img = toMessageImage(allImages[allImages.length - 1])
-            if (img) editImages = [img]
+            step('视觉无法确定，需用户手动选择')
           }
         }
       }

@@ -114,6 +114,11 @@ export default function ChatPage({ onOpenSettings }: ChatPageProps) {
   const handleConfirmIntent = async () => {
     if (!intentConfirm) return
     const { content, imageData, action, histImages, selectedImageIds } = intentConfirm
+    // edit 意图且有历史图片时，必须选择至少一张
+    if (action === 'edit' && histImages.length > 0 && selectedImageIds.size === 0) {
+      antMessage.warning('请至少选择一张图片')
+      return
+    }
     // 收集选中的历史图片
     const selectedImgs: MessageImage[] = histImages
       .filter((img) => selectedImageIds.has(img.id))
@@ -121,14 +126,6 @@ export default function ChatPage({ onOpenSettings }: ChatPageProps) {
         type: 'image' as const, mimeType: 'image/png',
         data: img.imageBase64 || '', url: img.imageUrl
       }))
-    // 编辑意图：如果没有选图片，自动用最新一张
-    if (action === 'edit' && selectedImgs.length === 0 && histImages.length > 0) {
-      const latest = histImages[histImages.length - 1]
-      selectedImgs.push({
-        type: 'image', mimeType: 'image/png',
-        data: latest.imageBase64 || '', url: latest.imageUrl
-      })
-    }
     setIntentConfirm(null)
     await doSend(content, [...(imageData || []), ...selectedImgs])
   }
