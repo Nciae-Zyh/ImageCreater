@@ -281,7 +281,7 @@ export async function routeRequest(request: RouterRequest): Promise<RouterRespon
         step('从历史记录查找图片...')
         const allImages = getAllImagesFromHistory(request.conversationId)
         if (allImages.length === 0) {
-          step('历史记录中无图片')
+          step('历史记录中无图片，降级为生成')
         } else if (allImages.length === 1) {
           step('只有 1 张图片，直接使用')
           const img = toMessageImage(allImages[0])
@@ -298,6 +298,11 @@ export async function routeRequest(request: RouterRequest): Promise<RouterRespon
           }
           if (editImages.length === 0) {
             step('视觉无法确定，需用户手动选择')
+            // 返回特殊错误，让前端弹出选择器
+            return {
+              action: 'edit' as IntentAction, content: '',
+              metadata: { chatModel: models.chatModel, duration: Date.now() - startTime, steps, needUserSelect: true }
+            }
           }
         }
       }

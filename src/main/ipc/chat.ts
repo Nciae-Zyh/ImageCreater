@@ -135,6 +135,19 @@ export function registerChatHandlers(): void {
           streamCallback: (chunk) => sendStream(`[TEXT]${chunk}`)
         })
 
+        // 如果需要用户选择图片，发送特殊信号
+        if ((result.metadata as any).needUserSelect) {
+          sendStream(`[META]${JSON.stringify({
+            model: result.metadata.chatModel,
+            duration: result.metadata.duration,
+            steps: result.metadata.steps,
+            action: result.action,
+            needUserSelect: true
+          })}`)
+          sendStream('[DONE]')
+          return { success: true, data: { ...result, needUserSelect: true } }
+        }
+
         // 发送元数据
         sendStream(`[META]${JSON.stringify({
           model: result.metadata.chatModel,
