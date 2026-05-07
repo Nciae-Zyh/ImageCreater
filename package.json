@@ -1,9 +1,12 @@
 {
   "name": "image-creater",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "AI-powered cross-platform image generation tool",
   "main": "./out/main/index.js",
-  "author": "",
+  "author": {
+    "name": "Nciae-Zyh",
+    "email": "2681904978@qq.com"
+  },
   "license": "MIT",
   "pnpm": {
     "onlyBuiltDependencies": [

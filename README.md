@@ -44,7 +44,7 @@ Artifacts are generated in `dist/`.
 Workflow file: `.github/workflows/build.yml`
 
 Trigger:
-- Push a tag that starts with `v` (example: `v1.0.1`)
+- Push a tag that starts with `v` (example: `v1.0.2`)
 
 What CI does:
 1. Build on macOS/Linux/Windows (matrix jobs)
@@ -53,9 +53,13 @@ What CI does:
 
 ### Publish a new version
 
+1) Update version in `package.json` (example: `1.0.2`)  
+2) Commit and push  
+3) Create and push a matching tag (example: `v1.0.2`)
+
 ```bash
-git tag v1.0.1
-git push origin v1.0.1
+git tag v1.0.2
+git push origin v1.0.2
 ```
 
 After the workflow succeeds, a Release will be created automatically.
@@ -73,7 +77,16 @@ Fix in this repo:
 
 So for this repo you usually do not need to configure a PAT manually.
 
-### 2) macOS `hdiutil` intermittent failure when building DMG
+### 2) `Please specify author 'email' in the application package.json`
+
+Cause:
+- Linux `.deb` needs maintainer metadata.
+
+Fix in this repo:
+- `package.json` has author name + email.
+- `electron-builder.yml` sets `linux.maintainer`.
+
+### 3) macOS `hdiutil` intermittent failure when building DMG
 
 Cause:
 - `hdiutil` on GitHub macOS runners can be flaky.
@@ -81,6 +94,14 @@ Cause:
 Fix in this repo:
 - mac build step retries once automatically in CI.
 - `strategy.fail-fast: false` avoids canceling other platform jobs immediately.
+
+### 4) `resources/icon.ico must be at least 256x256`
+
+Cause:
+- Windows target requires `.ico` that contains a `256x256` image entry.
+
+Fix in this repo:
+- `resources/icon.ico` is generated from `resources/icon.png` and includes multiple sizes up to `256x256`.
 
 ## GitHub Permissions
 

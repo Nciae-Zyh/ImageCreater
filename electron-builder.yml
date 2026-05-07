@@ -43,6 +43,7 @@ nsis:
   createStartMenuShortcut: true
 
 linux:
+  maintainer: Nciae-Zyh <2681904978@qq.com>
   target:
     - target: AppImage
       arch:
