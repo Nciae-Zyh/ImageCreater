@@ -242,7 +242,7 @@ export function registerChatHandlers(): void {
         const messages = getMessages(data.conversationId).slice(-10)
         conversationHistory = messages.map((m) => ({
           role: m.role,
-          content: m.content.slice(0, 200),
+          content: (m.image_url ? '[含有图片] ' : '') + m.content.slice(0, 200),
           hasImage: !!m.image_url
         }))
       }
