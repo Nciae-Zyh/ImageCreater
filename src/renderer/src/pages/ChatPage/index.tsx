@@ -144,14 +144,13 @@ export default function ChatPage({ onOpenSettings }: ChatPageProps) {
             height: isMac ? 48 : 40
           }}
         >
-          <Space>
-            <RobotOutlined style={{ fontSize: 18, color: '#1677ff' }} />
-            <Text strong style={{ fontSize: 13 }} ellipsis={{ tooltip: activeConversation?.title }}>
+          <Space style={{ minWidth: 0, flex: 1, overflow: 'hidden' }}>
+            <RobotOutlined style={{ fontSize: 18, color: '#1677ff', flexShrink: 0 }} />
+            <Text strong style={{ fontSize: 13, maxWidth: 300 }} ellipsis={{ tooltip: activeConversation?.title }}>
               {activeConversation?.title || '新对话'}
             </Text>
           </Space>
-          <Space>
-            {/* 当前配置摘要 */}
+          <Space style={{ flexShrink: 0 }}>
             <Text type="secondary" style={{ fontSize: 11 }}>
               {chatProvider?.name || '未选择'} / {selectedChatModel || '未选择'}
               {selectedImageModel && <> + {selectedImageModel}</>}

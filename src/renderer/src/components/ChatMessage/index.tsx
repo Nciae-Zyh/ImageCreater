@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Typography, Space, Tag, Spin, Image, Button, Collapse, Alert, message as antMessage } from 'antd'
 import { UserOutlined, RobotOutlined, ClockCircleOutlined, DownloadOutlined, ExpandOutlined, CheckCircleOutlined, LoadingOutlined, CloseCircleOutlined } from '@ant-design/icons'
 import ReactMarkdown from 'react-markdown'
@@ -62,6 +62,11 @@ export default function ChatMessage({ message, streaming = false, error }: ChatM
   const hasContent = !!message.content
   const hasImage = !!imageSrc
   const hasPartial = streaming && !!message.partialImage && !hasImage
+
+  // 图片URL变化时重新加载
+  useEffect(() => {
+    if (imageSrc) setImgLoading(true)
+  }, [imageSrc])
 
   const handleDownload = async () => {
     if (!imageSrc) return
