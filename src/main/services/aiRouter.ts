@@ -1,3 +1,4 @@
+import OpenAI from 'openai'
 import { classifyIntentAI } from './intentClassifier'
 import { sendMessage, cancelStream } from './chatService'
 import { generateImage } from './imageService'

@@ -187,6 +187,12 @@ export function registerChatHandlers(): void {
           sendStream(`[IMAGE]${savedImageUrl}`)
         }
 
+        // 保存消息，记录 prompt
+        const msgMetadata = {
+          ...result.metadata,
+          optimizedPrompt: result.optimizedPrompt,
+          prompt: result.optimizedPrompt || request.message
+        }
         saveMessage({
           id: assistantMsgId,
           conversationId: request.conversationId,
@@ -194,7 +200,7 @@ export function registerChatHandlers(): void {
           content: result.content,
           type: result.action === 'chat' || result.action === 'analyze' ? 'text' : 'image',
           imageUrl: savedImageUrl,
-          metadata: JSON.stringify({ ...result.metadata, optimizedPrompt: result.optimizedPrompt }),
+          metadata: JSON.stringify(msgMetadata),
           timestamp: Date.now()
         })
 
