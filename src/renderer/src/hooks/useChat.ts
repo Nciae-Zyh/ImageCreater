@@ -130,6 +130,8 @@ export function useChat() {
       setError(err instanceof Error ? err.message : '发送失败')
       return null
     } finally {
+      // 确保最终状态同步到 store
+      flushUpdate()
       setIsStreaming(false)
       cancelRef.current?.()
       cancelRef.current = null
