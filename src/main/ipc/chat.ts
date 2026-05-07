@@ -346,6 +346,7 @@ export function registerChatHandlers(): void {
         selectedImageHints: data.selectedImageHints,
         selectedImages: data.selectedImages
       })
+      logger.info(`[Chat] optimizePrompt 成功: action=${data.action}, candidates=${optimizedResult.candidates.length}, recommended=${optimizedResult.recommendedIndex}`)
       return {
         success: true,
         data: {
@@ -355,6 +356,7 @@ export function registerChatHandlers(): void {
         }
       }
     } catch (error) {
+      logger.error('[Chat] optimizePrompt 失败:', error as any)
       return { success: false, error: (error as Error).message }
     }
   })

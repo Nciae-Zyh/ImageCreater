@@ -1,6 +1,6 @@
 {
   "name": "image-creater",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "AI-powered cross-platform image generation tool",
   "main": "./out/main/index.js",
   "author": {

@@ -69,10 +69,11 @@ export function buildVisionMessage(
   }
   const contentParts: any[] = [{ type: 'text', text: content }]
   for (const img of imageData) {
+    const isRemoteUrl = !!img.url && /^https?:\/\//i.test(img.url)
     contentParts.push({
       type: 'image_url',
       image_url: {
-        url: `data:${img.mimeType};base64,${img.data}`
+        url: isRemoteUrl ? img.url : `data:${img.mimeType};base64,${img.data}`
       }
     })
   }

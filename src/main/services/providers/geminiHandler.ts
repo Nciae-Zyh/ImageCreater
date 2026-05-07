@@ -15,10 +15,19 @@ export const geminiHandler: ProviderHandler = {
 
   async vision({ prompt, images, model, baseUrl, apiKey }) {
     // Gemini 通过 OpenAI 兼容层访问时，使用标准格式
-    const content: any[] = images.map((img) => ({
-      type: 'image_url',
-      image_url: { url: `data:${img.mimeType};base64,${img.data}` }
-    }))
+    const content: any[] = images
+      .map((img, idx) => {
+        const isRemoteUrl = !!img.url && /^https?:\/\//i.test(img.url)
+        logger.info(`[Gemini] 图片输入 ${idx + 1}: source=${isRemoteUrl ? 'url' : (img.data ? 'base64' : 'empty')}, url=${img.url?.slice(0, 120) || ''}`)
+        if (isRemoteUrl) {
+          return { type: 'image_url', image_url: { url: img.url } }
+        }
+        if (img.data) {
+          return { type: 'image_url', image_url: { url: `data:${img.mimeType};base64,${img.data}` } }
+        }
+        return null
+      })
+      .filter(Boolean) as any[]
     content.push({ type: 'text', text: prompt })
 
     // 通过 OpenAI 兼容层

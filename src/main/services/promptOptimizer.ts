@@ -1,5 +1,4 @@
 import OpenAI from 'openai'
-import { matchProvider } from './providers/registry'
 import type { MessageImage } from '../../../shared/types'
 import { logger } from '../utils/logger'
 
@@ -84,6 +83,13 @@ const MULTI_CANDIDATE_OUTPUT_FORMAT = `请严格输出 JSON，格式如下：
 - why 简短，20 字以内
 - 不要输出任何 JSON 之外的内容`
 
+const ADVANCED_EDIT_STRATEGY = `编辑候选生成要求（比常规更深入）：
+1. 候选1：保真编辑。优先保持原主体身份、构图和光线，只改用户要求。
+2. 候选2：商业强化。强调可用于广告/海报的视觉冲击、材质细节、对比层次。
+3. 候选3：叙事升级。在不违背用户意图下，补充更具体的环境、镜头、情绪和动作细节。
+4. 每条 prompt 都要明确：主体变化点、背景处理、光线风格、画质/质感目标、约束（如“保持其余元素不变”）。
+5. 不要输出抽象套话；避免“优化一下”“更好看”等空泛表达。`
+
 function safeParseCandidates(raw: string): OptimizePromptResult | null {
   try {
     const parsed = JSON.parse(raw)
@@ -109,7 +115,84 @@ function safeParseCandidates(raw: string): OptimizePromptResult | null {
   }
 }
 
-function buildFallbackResult(userMessage: string): OptimizePromptResult {
+function parseCandidatesWithRecovery(raw: string): OptimizePromptResult | null {
+  const parsed = safeParseCandidates(raw)
+  if (parsed) return parsed
+
+  const jsonBlockMatch = raw.match(/\{[\s\S]*\}/)
+  if (jsonBlockMatch) {
+    return safeParseCandidates(jsonBlockMatch[0])
+  }
+
+  return null
+}
+
+async function recoverCandidatesByReformat(
+  client: OpenAI,
+  model: string,
+  rawText: string
+): Promise<OptimizePromptResult | null> {
+  try {
+    const res = await client.chat.completions.create({
+      model,
+      temperature: 0,
+      response_format: { type: 'json_object' },
+      messages: [
+        {
+          role: 'system',
+          content: `你是 JSON 修复器。将输入内容整理为下述 JSON：
+{
+  "recommendedIndex": 0,
+  "candidates": [
+    { "prompt": "候选1", "why": "原因" },
+    { "prompt": "候选2", "why": "原因" },
+    { "prompt": "候选3", "why": "原因" }
+  ]
+}
+必须输出 JSON，不要输出其它内容。`
+        },
+        {
+          role: 'user',
+          content: `请整理这段内容：\n${rawText}`
+        }
+      ]
+    } as any)
+    const fixedRaw = res.choices?.[0]?.message?.content?.trim() || ''
+    logger.info(`[Prompt] 二次结构化输出: finish_reason=${res.choices?.[0]?.finish_reason}, usage=${JSON.stringify(res.usage)}, preview=${fixedRaw.slice(0, 220)}`)
+    return parseCandidatesWithRecovery(fixedRaw)
+  } catch (error) {
+    logger.warn('[Prompt] 二次结构化失败', error as any)
+    return null
+  }
+}
+
+function buildFallbackResult(
+  userMessage: string,
+  action: OptimizePromptRequest['action'],
+  hints: string[] = []
+): OptimizePromptResult {
+  const hintText = hints.slice(0, 3).join('；')
+  if (action === 'edit') {
+    return {
+      optimizedPrompt: `${userMessage}。保持主体结构与其余场景不变，强化边缘细节与材质真实感，光线过渡自然。`,
+      candidates: [
+        {
+          prompt: `${userMessage}。仅执行该修改，保持人物姿态、镜头视角与背景结构不变，修复边缘并保持自然光影。`,
+          why: '保真编辑'
+        },
+        {
+          prompt: `${userMessage}。提升商业视觉质感，强化主体细节与材质反射，优化前后景层次与对比，保持画面真实。`,
+          why: '商业强化'
+        },
+        {
+          prompt: `${userMessage}。在不改变主体构图前提下，增强叙事氛围与环境细节，统一色调与光线方向，输出高清细节。${hintText ? `参考要点：${hintText}。` : ''}`,
+          why: '叙事升级'
+        }
+      ],
+      recommendedIndex: 0
+    }
+  }
+
   return {
     optimizedPrompt: userMessage,
     candidates: [
@@ -121,36 +204,60 @@ function buildFallbackResult(userMessage: string): OptimizePromptResult {
   }
 }
 
-async function buildVisionHints(
-  request: OptimizePromptRequest
-): Promise<string[]> {
-  if (!request.selectedImages || request.selectedImages.length === 0) return []
-  try {
-    const provider = matchProvider(request.baseUrl)
-    const model = request.model || 'gpt-4o-mini'
-    const vision = await provider.vision({
-      prompt: '请用中文简要描述这些图片中与后续编辑最相关的主体、场景、材质、光线、风格要点，输出 3-5 条短句。',
-      images: request.selectedImages.slice(0, 3),
-      model,
-      baseUrl: request.baseUrl,
-      apiKey: request.apiKey
-    })
-    const lines = String(vision.content || '')
-      .split('\n')
-      .map((line) => line.replace(/^[-*\d\.\s]+/, '').trim())
-      .filter(Boolean)
-      .slice(0, 6)
-    logger.info(`[Prompt] 视觉要点提取完成: ${lines.length} 条`)
-    return lines
-  } catch (error) {
-    logger.warn('[Prompt] 视觉要点提取失败，回退为文本上下文', error as any)
-    return []
+function isHttpUrl(url?: string): boolean {
+  return !!url && /^https?:\/\//i.test(url)
+}
+
+function isMimoBaseUrl(baseUrl: string): boolean {
+  return /xiaomimimo\.com/i.test(baseUrl)
+}
+
+function buildImageContentParts(images: MessageImage[]): Array<{ type: string; image_url?: { url: string }; text?: string }> {
+  const parts: Array<{ type: string; image_url?: { url: string }; text?: string }> = []
+  for (const img of images.slice(0, 3)) {
+    if (isHttpUrl(img.url)) {
+      parts.push({ type: 'image_url', image_url: { url: img.url! } })
+      continue
+    }
+    if (img.data) {
+      parts.push({
+        type: 'image_url',
+        image_url: { url: `data:${img.mimeType || 'image/png'};base64,${img.data}` }
+      })
+    }
   }
+  return parts
+}
+
+function logImageInputs(tag: string, images: MessageImage[]): void {
+  const summary = images.slice(0, 3).map((img, idx) => ({
+    idx,
+    source: isHttpUrl(img.url) ? 'url' : (img.data ? 'base64' : 'empty'),
+    mime: img.mimeType,
+    url: img.url?.slice(0, 120) || ''
+  }))
+  logger.info(`[Prompt] ${tag}: ${JSON.stringify(summary)}`)
+}
+
+function getUserInputForTextOptimize(request: OptimizePromptRequest, allHints: string[]): string {
+  if (request.action === 'edit' && allHints.length > 0) {
+    return `用户编辑需求：${request.userMessage}
+
+已选择待编辑图片的上下文要点：
+${allHints.map((hint, idx) => `${idx + 1}. ${hint}`).join('\n')}
+
+${ADVANCED_EDIT_STRATEGY}
+${MULTI_CANDIDATE_OUTPUT_FORMAT}`
+  }
+  return `${request.userMessage}
+
+${MULTI_CANDIDATE_OUTPUT_FORMAT}`
 }
 
 export async function optimizePrompt(request: OptimizePromptRequest): Promise<OptimizePromptResult> {
   try {
     const client = new OpenAI({ baseURL: request.baseUrl, apiKey: request.apiKey, timeout: 30000 })
+    const useMimoParams = isMimoBaseUrl(request.baseUrl)
 
     const systemPrompt = request.action === 'reference' ? REFERENCE_SYSTEM_PROMPT
       : request.action === 'edit' ? EDIT_SYSTEM_PROMPT
@@ -161,43 +268,70 @@ export async function optimizePrompt(request: OptimizePromptRequest): Promise<Op
       .filter(Boolean)
       .slice(0, 5)
 
-    const visionHints = request.action === 'edit' && request.selectedImages && request.selectedImages.length > 0
-      ? await buildVisionHints(request)
+    const imageParts = request.action === 'edit' && request.selectedImages?.length
+      ? buildImageContentParts(request.selectedImages)
       : []
-    const allHints = [...textHints, ...visionHints].filter(Boolean).slice(0, 8)
+    logImageInputs('优化输入图片', request.selectedImages || [])
 
-    const userInput = request.action === 'edit' && allHints.length > 0
-      ? `用户编辑需求：${request.userMessage}
+    const allHints = [...textHints].filter(Boolean).slice(0, 8)
+    logger.info(`[Prompt] 优化请求: action=${request.action}, textHints=${textHints.length}, imageParts=${imageParts.length}, input="${request.userMessage}"`)
 
-已选择待编辑图片的上下文要点：
-${allHints.map((hint, idx) => `${idx + 1}. ${hint}`).join('\n')}
+    const multimodalUserContent = imageParts.length > 0
+      ? [
+        ...imageParts,
+        {
+          type: 'text',
+          text: `用户编辑需求：${request.userMessage}
 
+${allHints.length > 0 ? `用户补充上下文：\n${allHints.map((hint, idx) => `${idx + 1}. ${hint}`).join('\n')}\n\n` : ''}${ADVANCED_EDIT_STRATEGY}
 ${MULTI_CANDIDATE_OUTPUT_FORMAT}`
-      : `${request.userMessage}
+        }
+      ]
+      : undefined
 
-${MULTI_CANDIDATE_OUTPUT_FORMAT}`
-    logger.info(`[Prompt] 优化请求: action=${request.action}, textHints=${textHints.length}, visionHints=${visionHints.length}, input="${request.userMessage}"`)
-
-    const response = await client.chat.completions.create({
+    const reqBody: any = {
       model: request.model || 'gpt-4o-mini',
       messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userInput }
+        { role: 'system', content: request.action === 'edit' ? `${systemPrompt}\n\n${ADVANCED_EDIT_STRATEGY}` : systemPrompt },
+        {
+          role: 'user',
+          content: multimodalUserContent || getUserInputForTextOptimize(request, allHints)
+        }
       ],
-      temperature: 0.95,
-      max_tokens: 600
-    })
+      temperature: request.action === 'edit' ? 0.7 : 0.9,
+      response_format: { type: 'json_object' }
+    }
+
+    logger.info(`[Prompt] 请求参数: ${JSON.stringify({
+      model: reqBody.model,
+      action: request.action,
+      mimo: useMimoParams,
+      hasImageParts: imageParts.length > 0,
+      response_format: reqBody.response_format?.type
+    })}`)
+
+    const response = await client.chat.completions.create(reqBody)
 
     const raw = response.choices[0]?.message?.content?.trim() || ''
-    const parsed = safeParseCandidates(raw)
+    logger.info(`[Prompt] 响应状态: finish_reason=${response.choices?.[0]?.finish_reason}, usage=${JSON.stringify(response.usage)}`)
+    logger.info(`[Prompt] 响应原文预览: ${raw.slice(0, 500)}`)
+    const parsed = parseCandidatesWithRecovery(raw)
     if (parsed) {
       logger.info(`[Prompt] 优化结果: candidates=${parsed.candidates.length}, recommended=${parsed.recommendedIndex}`)
       return parsed
     }
 
+    if (raw) {
+      const recovered = await recoverCandidatesByReformat(client, reqBody.model, raw)
+      if (recovered) {
+        logger.info(`[Prompt] 二次结构化成功: candidates=${recovered.candidates.length}, recommended=${recovered.recommendedIndex}`)
+        return recovered
+      }
+    }
+
     // 模型偶尔不按 JSON 输出，进行兜底
     if (raw) {
-      const fallback = buildFallbackResult(raw)
+      const fallback = buildFallbackResult(raw, request.action, allHints)
       fallback.optimizedPrompt = raw
       fallback.candidates[0] = { prompt: raw, why: '模型首选结果' }
       logger.info('[Prompt] 非 JSON 输出，已回退候选结果')
@@ -207,5 +341,5 @@ ${MULTI_CANDIDATE_OUTPUT_FORMAT}`
     logger.error(`[Prompt] 优化失败:`, error)
   }
 
-  return buildFallbackResult(request.userMessage)
+  return buildFallbackResult(request.userMessage, request.action, request.selectedImageHints || [])
 }

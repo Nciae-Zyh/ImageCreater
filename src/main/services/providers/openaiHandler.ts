@@ -17,10 +17,19 @@ export const openaiHandler: ProviderHandler = {
   async vision({ prompt, images, model, baseUrl, apiKey }) {
     const client = new OpenAI({ baseURL: baseUrl, apiKey, timeout: 120000 })
 
-    const content: any[] = images.map((img) => ({
-      type: 'image_url',
-      image_url: { url: `data:${img.mimeType};base64,${img.data}`, detail: 'high' }
-    }))
+    const content: any[] = images
+      .map((img, idx) => {
+        const isRemoteUrl = !!img.url && /^https?:\/\//i.test(img.url)
+        logger.info(`[OpenAI] 图片输入 ${idx + 1}: source=${isRemoteUrl ? 'url' : (img.data ? 'base64' : 'empty')}, url=${img.url?.slice(0, 120) || ''}`)
+        if (isRemoteUrl) {
+          return { type: 'image_url', image_url: { url: img.url, detail: 'high' } }
+        }
+        if (img.data) {
+          return { type: 'image_url', image_url: { url: `data:${img.mimeType};base64,${img.data}`, detail: 'high' } }
+        }
+        return null
+      })
+      .filter(Boolean) as any[]
     content.push({ type: 'text', text: prompt })
 
     logger.info(`[OpenAI] 视觉分析: POST ${baseUrl}/chat/completions`)

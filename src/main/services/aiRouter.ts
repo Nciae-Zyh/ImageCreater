@@ -16,6 +16,14 @@ interface HistoryImageItem {
   imageUrl: string
 }
 
+function isHttpUrl(url?: string): boolean {
+  return !!url && /^https?:\/\//i.test(url)
+}
+
+function isMimoBaseUrl(baseUrl: string): boolean {
+  return /xiaomimimo\.com/i.test(baseUrl)
+}
+
 /** 获取对话历史中所有图片 */
 function getAllImagesFromHistory(conversationId: string): HistoryImageItem[] {
   const messages = getMessages(conversationId)
@@ -32,6 +40,7 @@ function toMessageImage(item: HistoryImageItem): MessageImage | null {
   const path = require('path')
   logger.info(`[Router] 转换图片: id=${item.id}, image_url=${item.imageUrl}`)
   if (item.imageUrl.startsWith('http')) {
+    logger.info(`[Router] 直接使用远程 URL 图像: ${item.imageUrl.slice(0, 140)}`)
     return { type: 'image', mimeType: 'image/png', data: '', url: item.imageUrl }
   }
   const filename = item.imageUrl.replace('file://', '').replace('app-image://', '')
@@ -60,39 +69,42 @@ async function selectImageByAI(
 
   try {
     const client = new OpenAI({ baseURL: baseUrl, apiKey, timeout: 30000 })
+    const useMimoParams = isMimoBaseUrl(baseUrl)
     const path = require('path')
 
-    // 加载每张图片的 base64 数据
+    // 构建图片输入：优先远程 URL（如 R2），否则回退本地 base64 data URL
     const imageParts: any[] = []
     for (let i = 0; i < images.length; i++) {
       const img = images[i]
-      let base64: string | null = null
       logger.info(`[VisionSelect] 加载图片 ${i}: id=${img.id}, url=${img.imageUrl.slice(0, 80)}`)
-      if (img.imageUrl.startsWith('http')) {
-        try {
-          const res = await fetch(img.imageUrl)
-          logger.info(`[VisionSelect] 远程下载: status=${res.status}`)
-          if (res.ok) {
-            const buf = Buffer.from(await res.arrayBuffer())
-            base64 = buf.toString('base64')
-            logger.info(`[VisionSelect] 远程下载成功: ${buf.length} bytes`)
-          }
-        } catch (e: any) {
-          logger.error(`[VisionSelect] 远程下载失败: ${e.message}`)
-        }
-      } else {
+
+      if (isHttpUrl(img.imageUrl)) {
+        imageParts.push({
+          type: 'image_url',
+          image_url: { url: img.imageUrl, detail: 'low' }
+        })
+        imageParts.push({ type: 'text', text: `[图片 ${i}]` })
+        logger.info(`[VisionSelect] 图片 ${i} 使用远程 URL`)
+        continue
+      }
+
+      let base64: string | null = null
+      try {
         const filename = img.imageUrl.replace('file://', '').replace('app-image://', '')
         const fullPath = path.join(IMAGES_DIR, filename)
         base64 = getImageAsBase64(fullPath)
-        logger.info(`[VisionSelect] 本地读取: ${fullPath}, 成功=${!!base64}, 大小=${base64?.length || 0}`)
+        logger.info(`[VisionSelect] 本地读取: ${fullPath}, ok=${!!base64}, size=${base64?.length || 0}`)
+      } catch (e: any) {
+        logger.warn(`[VisionSelect] 本地读取异常: ${e.message}`)
       }
+
       if (base64) {
         imageParts.push({
           type: 'image_url',
           image_url: { url: `data:image/png;base64,${base64}`, detail: 'low' }
         })
         imageParts.push({ type: 'text', text: `[图片 ${i}]` })
-        logger.info(`[VisionSelect] 图片 ${i} 已加入, base64长度=${base64.length}`)
+        logger.info(`[VisionSelect] 图片 ${i} 已加入(data URL), base64长度=${base64.length}`)
       } else {
         logger.warn(`[VisionSelect] 图片 ${i} 加载失败，跳过`)
       }
@@ -107,25 +119,29 @@ async function selectImageByAI(
 
     const systemPrompt = `你是一个图片分析助手。你看到了多张图片，每张标注了序号。
 用户说: "${userMessage}"
-请根据用户的需求，判断哪张图片最相关。只返回一个数字序号。如果无法确定返回 -1。`
+请根据用户需求判断哪张图片最相关。
+仅输出一个数字序号（例如 0、1、2）。如果无法判断，输出 -1。不要输出其它文本。`
 
     const userContent: any[] = [
       { type: 'text', text: `请分析上面的图片，选择最相关的那张，只返回序号:` },
       ...imageParts
     ]
 
-    logger.info(`[VisionSelect] 发送请求: model=${model}, messages=${2}条, 图片=${imageParts.filter(p => p.type === 'image_url').length}张`)
+    const imageCount = imageParts.filter((p) => p.type === 'image_url').length
+    logger.info(`[VisionSelect] 发送请求: model=${model}, messages=${2}条, 图片=${imageCount}张, provider=${useMimoParams ? 'mimo' : 'openai-compatible'}`)
     logger.info(`[VisionSelect] system: ${systemPrompt.slice(0, 100)}...`)
 
-    const res = await client.chat.completions.create({
+    const reqBody: any = {
       model,
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userContent }
       ],
       temperature: 0,
-      max_tokens: 10
-    })
+    }
+
+    logger.info(`[VisionSelect] 请求参数: ${JSON.stringify({ model, temperature: 0, max_completion_tokens: reqBody.max_completion_tokens, max_tokens: reqBody.max_tokens, provider: useMimoParams ? 'mimo' : 'openai-compatible' })}`)
+    const res = await client.chat.completions.create(reqBody)
 
     const content = res.choices[0]?.message?.content?.trim() || ''
     logger.info(`[VisionSelect] 原始返回: "${content}"`)
@@ -134,7 +150,7 @@ async function selectImageByAI(
 
     const match = content.match(/-?\d+/)
     const index = match ? parseInt(match[0]) : -1
-    logger.info(`[VisionSelect] 解析结果: index=${index}`)
+    logger.info(`[VisionSelect] 解析结果: index=${index}, inRange=${index >= 0 && index < images.length}`)
     logger.info(`[VisionSelect] === 视觉选图完成 ===`)
     return index
   } catch (error: any) {
@@ -288,7 +304,9 @@ export async function routeRequest(request: RouterRequest): Promise<RouterRespon
           if (img) editImages = [img]
         } else {
           step(`历史记录有 ${allImages.length} 张图片，视觉分析选图...`)
-          const idx = await selectImageByAI(request.message, allImages, baseUrl, apiKey, record.chatModel || 'gpt-4o')
+          const visionSelectModel = models.visionModel || models.chatModel || record.chatModel || 'gpt-4o'
+          logger.info(`[Router] 视觉选图模型: ${visionSelectModel}`)
+          const idx = await selectImageByAI(request.message, allImages, baseUrl, apiKey, visionSelectModel)
           if (idx >= 0 && idx < allImages.length) {
             const img = toMessageImage(allImages[idx])
             if (img) {
