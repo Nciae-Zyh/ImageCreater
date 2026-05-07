@@ -89,7 +89,7 @@ async function selectImageByAI(
       if (base64) {
         imageParts.push({
           type: 'image_url',
-          image_url: { url: `data:image/png;base64,${base64.slice(0, 50)}...`, detail: 'low' }
+          image_url: { url: `data:image/png;base64,${base64}`, detail: 'low' }
         })
         imageParts.push({ type: 'text', text: `[图片 ${i}]` })
         logger.info(`[VisionSelect] 图片 ${i} 已加入, base64长度=${base64.length}`)
