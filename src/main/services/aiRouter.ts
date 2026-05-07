@@ -45,7 +45,7 @@ function toMessageImage(item: HistoryImageItem): MessageImage | null {
   return null
 }
 
-/** 用 AI 判断用户想编辑哪张图片 */
+/** 用视觉模型分析图片内容，判断用户想编辑哪张 */
 async function selectImageByAI(
   userMessage: string,
   images: HistoryImageItem[],
@@ -54,30 +54,63 @@ async function selectImageByAI(
   model: string
 ): Promise<number> {
   try {
-    const client = new OpenAI({ baseURL: baseUrl, apiKey, timeout: 15000 })
-    const imageDescs = images.map((img, i) =>
-      `[${i}] ${img.role}: "${img.content}"`
-    ).join('\n')
+    const client = new OpenAI({ baseURL: baseUrl, apiKey, timeout: 30000 })
+    const path = require('path')
+
+    // 加载每张图片的 base64 数据
+    const imageParts: any[] = []
+    for (let i = 0; i < images.length; i++) {
+      const img = images[i]
+      let base64: string | null = null
+      if (img.imageUrl.startsWith('http')) {
+        // 远程图片：下载
+        try {
+          const res = await fetch(img.imageUrl)
+          if (res.ok) {
+            const buf = Buffer.from(await res.arrayBuffer())
+            base64 = buf.toString('base64')
+          }
+        } catch {}
+      } else {
+        const filename = img.imageUrl.replace('file://', '').replace('app-image://', '')
+        base64 = getImageAsBase64(path.join(IMAGES_DIR, filename))
+      }
+      if (base64) {
+        imageParts.push({
+          type: 'image_url',
+          image_url: { url: `data:image/png;base64,${base64}`, detail: 'low' }
+        })
+        imageParts.push({ type: 'text', text: `[图片 ${i}]` })
+      }
+    }
+
+    if (imageParts.length === 0) {
+      logger.warn(`[Router] 无法加载任何图片数据`)
+      return -1
+    }
 
     const res = await client.chat.completions.create({
       model,
       messages: [
-        { role: 'system', content: `只返回一个数字，表示用户想编辑的图片序号。如果无法确定返回 -1。` },
-        { role: 'user', content: `用户说: "${userMessage}"\n\n图片列表:\n${imageDescs}\n\n选择序号:` }
+        { role: 'system', content: `用户想编辑一张图片。你看到了多张图片，每张标注了序号。
+请根据用户的需求，判断哪张图片最相关。只返回一个数字序号。如果无法确定返回 -1。` },
+        { role: 'user', content: [
+          { type: 'text', text: `用户说: "${userMessage}"\n\n请分析上面的图片，选择最相关的那张，只返回序号:` },
+          ...imageParts
+        ] }
       ],
       temperature: 0,
       max_tokens: 10
     })
 
     const content = res.choices[0]?.message?.content?.trim() || ''
-    logger.info(`[Router] AI 选择图片原始返回: "${content}"`)
-    // 提取数字
+    logger.info(`[Router] 视觉选图原始返回: "${content}"`)
     const match = content.match(/-?\d+/)
     const index = match ? parseInt(match[0]) : -1
-    logger.info(`[Router] AI 选择图片: index=${index}`)
+    logger.info(`[Router] 视觉选图: index=${index}`)
     return index
   } catch (error) {
-    logger.error(`[Router] AI 选择图片失败:`, error)
+    logger.error(`[Router] 视觉选图失败:`, error)
     return -1
   }
 }
@@ -206,24 +239,35 @@ export async function routeRequest(request: RouterRequest): Promise<RouterRespon
     }
 
     case 'edit': {
-      // 编辑意图：始终使用最新图片
+      // 编辑意图：用视觉模型选图
       let editImages: MessageImage[] = []
 
       if (hasImage && request.imageData?.length) {
         editImages = request.imageData
         step(`使用用户上传的 ${editImages.length} 张图片`)
       } else {
-        step('从历史记录获取最新图片...')
+        step('从历史记录查找图片...')
         const allImages = getAllImagesFromHistory(request.conversationId)
         if (allImages.length === 0) {
           step('历史记录中无图片')
+        } else if (allImages.length === 1) {
+          step('只有 1 张图片，直接使用')
+          const img = toMessageImage(allImages[0])
+          if (img) editImages = [img]
         } else {
-          // 直接使用最新的一张
-          const latest = allImages[allImages.length - 1]
-          const img = toMessageImage(latest)
-          if (img) {
-            editImages = [img]
-            step(`使用最新图片: ${latest.content.slice(0, 30) || '(无描述)'}...`)
+          step(`历史记录有 ${allImages.length} 张图片，视觉分析选图...`)
+          const idx = await selectImageByAI(request.message, allImages, baseUrl, apiKey, record.chatModel || 'gpt-4o')
+          if (idx >= 0 && idx < allImages.length) {
+            const img = toMessageImage(allImages[idx])
+            if (img) {
+              editImages = [img]
+              step(`视觉选择: 图片 ${idx}`)
+            }
+          }
+          if (editImages.length === 0) {
+            step('视觉无法确定，使用最新图片')
+            const img = toMessageImage(allImages[allImages.length - 1])
+            if (img) editImages = [img]
           }
         }
       }
