@@ -68,7 +68,8 @@ try {
       getAll: () => ipcRenderer.invoke('conversation:get-all'),
       getMessages: (id: string) => ipcRenderer.invoke('conversation:get-messages', id),
       getImages: (id: string) => ipcRenderer.invoke('conversation:get-images', id),
-      delete: (id: string) => ipcRenderer.invoke('conversation:delete', id)
+      delete: (id: string) => ipcRenderer.invoke('conversation:delete', id),
+      deleteMessage: (conversationId: string, messageId: string) => ipcRenderer.invoke('conversation:delete-message', conversationId, messageId)
     },
 
     settings: {
