@@ -95,10 +95,15 @@ export default function ChatPage({ onOpenSettings }: ChatPageProps) {
         const result = await window.electronAPI.conversations.getImages(activeConversationId)
         if (result.success) histImgs = result.data || []
       } catch {}
+      // edit 意图且有多张图片时，自动选最新一张作为默认
+      const defaultSelected = new Set<string>()
+      if (action === 'edit' && histImgs.length > 0) {
+        defaultSelected.add(histImgs[histImgs.length - 1].id)
+      }
       setIntentConfirm({
         visible: true, action, confidence: intentResult.data?.confidence || 0,
         reason: intentResult.data?.reason || '', content, imageData,
-        histImages: histImgs, selectedImageIds: new Set(), loading: false
+        histImages: histImgs, selectedImageIds: defaultSelected, loading: false
       })
     } catch {
       setIntentConfirm(null)
