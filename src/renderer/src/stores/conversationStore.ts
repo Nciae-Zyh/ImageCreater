@@ -7,9 +7,10 @@ interface ConversationState {
   loadConversations: () => Promise<void>
   loadMessages: (conversationId: string) => Promise<void>
   createConversation: (providerId: string, model: string) => string
-  switchConversation: (id: string) => void
+  switchConversation: (id: string) => Promise<void>
   deleteConversation: (id: string) => Promise<void>
   addMessage: (conversationId: string, message: Message) => void
+  removeMessage: (conversationId: string, messageId: string) => void
   updateMessage: (conversationId: string, messageId: string, updates: Partial<Message>) => void
   updateLastAssistantMessage: (conversationId: string, content: string) => void
   getActiveConversation: () => Conversation | undefined
@@ -31,7 +32,8 @@ export const useConversationStore = create<ConversationState>()((set, get) => ({
           model: c.model,
           createdAt: c.created_at,
           updatedAt: c.updated_at,
-          messages: []
+          messages: [],
+          messageCount: c.message_count || 0
         }))
         set({ conversations })
       }
@@ -45,16 +47,23 @@ export const useConversationStore = create<ConversationState>()((set, get) => ({
       if (!window.electronAPI?.conversations) return
       const result = await window.electronAPI.conversations.getMessages(conversationId)
       if (result.success) {
-        const messages = (result.data as any[]).map((m) => ({
-          id: m.id,
-          role: m.role,
-          content: m.content,
-          type: m.type,
-          imageUrl: m.image_url || undefined,
-          imageData: m.image_data ? JSON.parse(m.image_data) : undefined,
-          metadata: m.metadata || undefined,
-          timestamp: m.timestamp
-        }))
+        const messages = (result.data as any[]).map((m) => {
+          // 从 metadata 中提取 steps 和 needUserSelect
+          let meta: any = {}
+          try { meta = m.metadata ? JSON.parse(m.metadata) : {} } catch { meta = {} }
+          return {
+            id: m.id,
+            role: m.role,
+            content: m.content,
+            type: m.type,
+            imageUrl: m.image_url || undefined,
+            imageData: m.image_data ? JSON.parse(m.image_data) : undefined,
+            metadata: m.metadata || undefined,
+            steps: meta.steps || [],
+            needUserSelect: meta.needUserSelect || false,
+            timestamp: m.timestamp
+          }
+        })
         set((state) => ({
           conversations: state.conversations.map((c) =>
             c.id === conversationId ? { ...c, messages } : c
@@ -84,9 +93,13 @@ export const useConversationStore = create<ConversationState>()((set, get) => ({
     return id
   },
 
-  switchConversation: (id) => {
+  switchConversation: async (id) => {
     set({ activeConversationId: id })
-    get().loadMessages(id)
+    const target = get().conversations.find((c) => c.id === id)
+    // 若本地已有消息（可能包含实时流式状态），避免切换时被 DB 快照覆盖。
+    if (!target || target.messages.length === 0) {
+      await get().loadMessages(id)
+    }
   },
 
   deleteConversation: async (id) => {
@@ -120,6 +133,14 @@ export const useConversationStore = create<ConversationState>()((set, get) => ({
               : c.title,
           updatedAt: Date.now()
         }
+      })
+    })),
+
+  removeMessage: (conversationId, messageId) =>
+    set((state) => ({
+      conversations: state.conversations.map((c) => {
+        if (c.id !== conversationId) return c
+        return { ...c, messages: c.messages.filter((m) => m.id !== messageId), updatedAt: Date.now() }
       })
     })),
 

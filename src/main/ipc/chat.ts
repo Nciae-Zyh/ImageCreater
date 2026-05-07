@@ -26,6 +26,11 @@ interface ChatSendRequest {
   modelSelection?: ModelSelection
 }
 
+interface ChatStreamPayload {
+  conversationId: string
+  chunk: string
+}
+
 interface ErrorInfo {
   message: string
   type: string
@@ -76,7 +81,11 @@ export function registerChatHandlers(): void {
 
       const sendStream = (data: string) => {
         if (!win.isDestroyed()) {
-          win.webContents.send(IPC_CHANNELS.CHAT.STREAM, data)
+          const payload: ChatStreamPayload = {
+            conversationId: request.conversationId,
+            chunk: data
+          }
+          win.webContents.send(IPC_CHANNELS.CHAT.STREAM, payload)
         }
       }
 
@@ -135,14 +144,42 @@ export function registerChatHandlers(): void {
           streamCallback: (chunk) => sendStream(`[TEXT]${chunk}`)
         })
 
-        // 如果需要用户选择图片，发送特殊信号
+        // 如果需要用户选择图片，保存消息后返回
         if ((result.metadata as any).needUserSelect) {
+          const needSelectMsgId = crypto.randomUUID()
+          const needSelectMetadata = {
+            ...result.metadata,
+            needUserSelect: true,
+            steps: result.metadata.steps,
+            prompt: result.optimizedPrompt || request.message,
+            displayContent: '视觉分析无法确定要编辑的图片，请在下方选择。'
+          }
+          saveMessage({
+            id: needSelectMsgId,
+            conversationId: request.conversationId,
+            role: 'assistant',
+            content: request.message,
+            type: 'text',
+            metadata: JSON.stringify(needSelectMetadata),
+            timestamp: Date.now()
+          })
+          saveConversation({
+            id: request.conversationId,
+            title: request.message.slice(0, 20) + (request.message.length > 20 ? '...' : ''),
+            providerId: request.providerId,
+            model: result.metadata.chatModel,
+            createdAt: Date.now(),
+            updatedAt: Date.now()
+          })
           sendStream(`[META]${JSON.stringify({
             model: result.metadata.chatModel,
             duration: result.metadata.duration,
             steps: result.metadata.steps,
             action: result.action,
-            needUserSelect: true
+            needUserSelect: true,
+            prompt: result.optimizedPrompt || request.message,
+            optimizedPrompt: result.optimizedPrompt || request.message,
+            displayContent: '视觉分析无法确定要编辑的图片，请在下方选择。'
           })}`)
           sendStream('[DONE]')
           return { success: true, data: { ...result, needUserSelect: true } }

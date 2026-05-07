@@ -53,8 +53,8 @@ try {
         imageData?: Array<{ type: 'image'; mimeType: string; data: string }>;
         modelSelection?: { mode: 'auto' | 'manual'; chatModel?: string; visionModel?: string; imageModel?: string }
       }) => ipcRenderer.invoke(IPC_CHANNELS.CHAT.SEND, data),
-      onStream: (callback: (chunk: string) => void) => {
-        const handler = (_e: Electron.IpcRendererEvent, chunk: string) => callback(chunk)
+      onStream: (callback: (payload: { conversationId: string; chunk: string }) => void) => {
+        const handler = (_e: Electron.IpcRendererEvent, payload: { conversationId: string; chunk: string }) => callback(payload)
         ipcRenderer.on(IPC_CHANNELS.CHAT.STREAM, handler)
         return () => ipcRenderer.removeListener(IPC_CHANNELS.CHAT.STREAM, handler)
       },
