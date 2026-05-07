@@ -53,6 +53,11 @@ async function selectImageByAI(
   apiKey: string,
   model: string
 ): Promise<number> {
+  logger.info(`[VisionSelect] === 开始视觉选图 ===`)
+  logger.info(`[VisionSelect] 用户输入: "${userMessage}"`)
+  logger.info(`[VisionSelect] 候选图片数: ${images.length}`)
+  logger.info(`[VisionSelect] 模型: ${model}, baseUrl: ${baseUrl}`)
+
   try {
     const client = new OpenAI({ baseURL: baseUrl, apiKey, timeout: 30000 })
     const path = require('path')
@@ -62,55 +67,82 @@ async function selectImageByAI(
     for (let i = 0; i < images.length; i++) {
       const img = images[i]
       let base64: string | null = null
+      logger.info(`[VisionSelect] 加载图片 ${i}: id=${img.id}, url=${img.imageUrl.slice(0, 80)}`)
       if (img.imageUrl.startsWith('http')) {
-        // 远程图片：下载
         try {
           const res = await fetch(img.imageUrl)
+          logger.info(`[VisionSelect] 远程下载: status=${res.status}`)
           if (res.ok) {
             const buf = Buffer.from(await res.arrayBuffer())
             base64 = buf.toString('base64')
+            logger.info(`[VisionSelect] 远程下载成功: ${buf.length} bytes`)
           }
-        } catch {}
+        } catch (e: any) {
+          logger.error(`[VisionSelect] 远程下载失败: ${e.message}`)
+        }
       } else {
         const filename = img.imageUrl.replace('file://', '').replace('app-image://', '')
-        base64 = getImageAsBase64(path.join(IMAGES_DIR, filename))
+        const fullPath = path.join(IMAGES_DIR, filename)
+        base64 = getImageAsBase64(fullPath)
+        logger.info(`[VisionSelect] 本地读取: ${fullPath}, 成功=${!!base64}, 大小=${base64?.length || 0}`)
       }
       if (base64) {
         imageParts.push({
           type: 'image_url',
-          image_url: { url: `data:image/png;base64,${base64}`, detail: 'low' }
+          image_url: { url: `data:image/png;base64,${base64.slice(0, 50)}...`, detail: 'low' }
         })
         imageParts.push({ type: 'text', text: `[图片 ${i}]` })
+        logger.info(`[VisionSelect] 图片 ${i} 已加入, base64长度=${base64.length}`)
+      } else {
+        logger.warn(`[VisionSelect] 图片 ${i} 加载失败，跳过`)
       }
     }
 
+    logger.info(`[VisionSelect] 成功加载 ${imageParts.filter(p => p.type === 'image_url').length} 张图片`)
+
     if (imageParts.length === 0) {
-      logger.warn(`[Router] 无法加载任何图片数据`)
+      logger.warn(`[VisionSelect] 无法加载任何图片数据，返回 -1`)
       return -1
     }
+
+    const systemPrompt = `你是一个图片分析助手。你看到了多张图片，每张标注了序号。
+用户说: "${userMessage}"
+请根据用户的需求，判断哪张图片最相关。只返回一个数字序号。如果无法确定返回 -1。`
+
+    const userContent: any[] = [
+      { type: 'text', text: `请分析上面的图片，选择最相关的那张，只返回序号:` },
+      ...imageParts
+    ]
+
+    logger.info(`[VisionSelect] 发送请求: model=${model}, messages=${2}条, 图片=${imageParts.filter(p => p.type === 'image_url').length}张`)
+    logger.info(`[VisionSelect] system: ${systemPrompt.slice(0, 100)}...`)
 
     const res = await client.chat.completions.create({
       model,
       messages: [
-        { role: 'system', content: `用户想编辑一张图片。你看到了多张图片，每张标注了序号。
-请根据用户的需求，判断哪张图片最相关。只返回一个数字序号。如果无法确定返回 -1。` },
-        { role: 'user', content: [
-          { type: 'text', text: `用户说: "${userMessage}"\n\n请分析上面的图片，选择最相关的那张，只返回序号:` },
-          ...imageParts
-        ] }
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userContent }
       ],
       temperature: 0,
       max_tokens: 10
     })
 
     const content = res.choices[0]?.message?.content?.trim() || ''
-    logger.info(`[Router] 视觉选图原始返回: "${content}"`)
+    logger.info(`[VisionSelect] 原始返回: "${content}"`)
+    logger.info(`[VisionSelect] finish_reason: ${res.choices[0]?.finish_reason}`)
+    logger.info(`[VisionSelect] usage: ${JSON.stringify(res.usage)}`)
+
     const match = content.match(/-?\d+/)
     const index = match ? parseInt(match[0]) : -1
-    logger.info(`[Router] 视觉选图: index=${index}`)
+    logger.info(`[VisionSelect] 解析结果: index=${index}`)
+    logger.info(`[VisionSelect] === 视觉选图完成 ===`)
     return index
-  } catch (error) {
-    logger.error(`[Router] 视觉选图失败:`, error)
+  } catch (error: any) {
+    logger.error(`[VisionSelect] === 视觉选图失败 ===`)
+    logger.error(`[VisionSelect] 错误类型: ${error.constructor?.name}`)
+    logger.error(`[VisionSelect] 错误信息: ${error.message}`)
+    if (error.status) logger.error(`[VisionSelect] HTTP 状态码: ${error.status}`)
+    if (error.error) logger.error(`[VisionSelect] API 错误: ${JSON.stringify(error.error).slice(0, 500)}`)
     return -1
   }
 }
