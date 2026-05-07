@@ -122,6 +122,12 @@ export function deleteConversation(id: string): void {
   saveDatabase()
 }
 
+export function deleteMessage(conversationId: string, messageId: string): void {
+  const d = getDb()
+  d.run('DELETE FROM messages WHERE id = ? AND conversation_id = ?', [messageId, conversationId])
+  saveDatabase()
+}
+
 // 消息操作
 export function saveMessage(msg: {
   id: string; conversationId: string; role: string; content: string; type: string;

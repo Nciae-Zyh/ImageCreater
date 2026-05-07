@@ -70,6 +70,7 @@ export default function ChatPage({ onOpenSettings }: ChatPageProps) {
         message: content, providerId: activeProviderId, hasImage: false,
         conversationId: activeConversationId || undefined
       })
+      console.log(`[ChatPage] analyzeIntent:`, intentResult)
       if (!intentResult.success) {
         await doSend(content, imageData)
         return
@@ -79,21 +80,23 @@ export default function ChatPage({ onOpenSettings }: ChatPageProps) {
         await doSend(content, imageData)
         return
       }
-      // edit 或 generate：获取历史图片，展示给用户选择
+      // edit 或 generate：始终弹出图片选择器
       let histImgs: any[] = []
       try {
         const result = await window.electronAPI.conversations.getImages(activeConversationId)
+        console.log(`[ChatPage] getImages:`, result)
         if (result.success) histImgs = result.data || []
-      } catch {}
-      if (histImgs.length > 0) {
-        setImagePicker({
-          content, imageData, histImages: histImgs,
-          selectedImageIds: action === 'edit' ? new Set([histImgs[histImgs.length - 1].id]) : new Set()
-        })
-      } else {
-        await doSend(content, imageData)
-      }
-    } catch {
+      } catch (e) { console.error('[ChatPage] getImages 错误:', e) }
+      console.log(`[ChatPage] 意图=${action}, 历史图片数=${histImgs.length}`)
+      setImagePicker({
+        content, imageData,
+        histImages: histImgs,
+        selectedImageIds: action === 'edit' && histImgs.length > 0
+          ? new Set([histImgs[histImgs.length - 1].id])
+          : new Set()
+      })
+    } catch (e) {
+      console.error('[ChatPage] handleSend 错误:', e)
       await doSend(content, imageData)
     }
   }
