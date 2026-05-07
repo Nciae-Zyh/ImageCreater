@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Layout, Button, Space, Typography, Tag, Dropdown, Modal, Card, Radio, Spin } from 'antd'
-import type { MenuProps } from 'antd'
-import { SettingOutlined, RobotOutlined, PictureOutlined, CheckOutlined, ThunderboltOutlined } from '@ant-design/icons'
+import { Layout, Button, Space, Typography, Tag, Spin, message as antMessage } from 'antd'
+import { SettingOutlined, RobotOutlined, CheckOutlined } from '@ant-design/icons'
 import Sidebar from './components/Sidebar'
 import ChatMessage from '../../components/ChatMessage'
 import ChatInput from '../../components/ChatInput'
@@ -24,10 +23,10 @@ export default function ChatPage({ onOpenSettings }: ChatPageProps) {
   const { sendMessage, isStreaming, cancelStream, streamState } = useChat()
 
   const [autoMode, setAutoMode] = useState(true)
-  const [intentConfirm, setIntentConfirm] = useState<{
-    visible: boolean; action: string; confidence: number; reason: string;
-    content: string; imageData?: MessageImage[]; histImages: any[];
-    selectedImageIds: Set<string>; loading: boolean
+  // agent 式图片选择：在聊天区域展示，而非弹窗
+  const [imagePicker, setImagePicker] = useState<{
+    content: string; imageData?: MessageImage[];
+    histImages: any[]; selectedImageIds: Set<string>
   } | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -37,12 +36,11 @@ export default function ChatPage({ onOpenSettings }: ChatPageProps) {
 
   useEffect(() => { loadConversations() }, [])
 
-  // 自动滚动到底部
   useEffect(() => {
     if (messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: 'smooth' })
     }
-  }, [activeConversation?.messages, isStreaming])
+  }, [activeConversation?.messages, isStreaming, imagePicker])
 
   const handleNewChat = () => {
     if (!activeProviderId) { onOpenSettings(); return }
@@ -58,7 +56,6 @@ export default function ChatPage({ onOpenSettings }: ChatPageProps) {
   }
 
   const handleSend = async (content: string, imageData?: MessageImage[]) => {
-    // 如果用户已上传图片，直接编辑
     if (imageData && imageData.length > 0) {
       await doSend(content, imageData)
       return
@@ -68,70 +65,63 @@ export default function ChatPage({ onOpenSettings }: ChatPageProps) {
       return
     }
     // AI 分析意图
-    setIntentConfirm({
-      visible: true, action: 'analyzing', confidence: 0, reason: '',
-      content, imageData, histImages: [], selectedImageIds: new Set(), loading: true
-    })
     try {
       const intentResult = await window.electronAPI.chat.analyzeIntent({
         message: content, providerId: activeProviderId, hasImage: false,
         conversationId: activeConversationId || undefined
       })
       if (!intentResult.success) {
-        setIntentConfirm(null)
         await doSend(content, imageData)
         return
       }
       const action = intentResult.data?.action || 'chat'
-      // 如果是 chat 或 analyze，直接发送
       if (action === 'chat' || action === 'analyze') {
-        setIntentConfirm(null)
         await doSend(content, imageData)
         return
       }
-      // edit 或 generate：获取历史图片
+      // edit 或 generate：获取历史图片，展示给用户选择
       let histImgs: any[] = []
       try {
         const result = await window.electronAPI.conversations.getImages(activeConversationId)
         if (result.success) histImgs = result.data || []
       } catch {}
-      // edit 意图且有多张图片时，自动选最新一张作为默认
-      const defaultSelected = new Set<string>()
-      if (action === 'edit' && histImgs.length > 0) {
-        defaultSelected.add(histImgs[histImgs.length - 1].id)
+      if (histImgs.length > 0) {
+        setImagePicker({
+          content, imageData, histImages: histImgs,
+          selectedImageIds: action === 'edit' ? new Set([histImgs[histImgs.length - 1].id]) : new Set()
+        })
+      } else {
+        await doSend(content, imageData)
       }
-      setIntentConfirm({
-        visible: true, action, confidence: intentResult.data?.confidence || 0,
-        reason: intentResult.data?.reason || '', content, imageData,
-        histImages: histImgs, selectedImageIds: defaultSelected, loading: false
-      })
     } catch {
-      setIntentConfirm(null)
       await doSend(content, imageData)
     }
   }
 
-  const handleConfirmIntent = async () => {
-    if (!intentConfirm) return
-    const { content, imageData, action, histImages, selectedImageIds } = intentConfirm
-    // edit 意图且有历史图片时，必须选择至少一张
-    if (action === 'edit' && histImages.length > 0 && selectedImageIds.size === 0) {
+  const handleConfirmImagePicker = async () => {
+    if (!imagePicker) return
+    const { content, imageData, histImages, selectedImageIds } = imagePicker
+    if (selectedImageIds.size === 0) {
       antMessage.warning('请至少选择一张图片')
       return
     }
-    // 收集选中的历史图片
     const selectedImgs: MessageImage[] = histImages
       .filter((img) => selectedImageIds.has(img.id))
       .map((img) => ({
         type: 'image' as const, mimeType: 'image/png',
         data: img.imageBase64 || '', url: img.imageUrl
       }))
-    setIntentConfirm(null)
+    setImagePicker(null)
     await doSend(content, [...(imageData || []), ...selectedImgs])
   }
 
-  const handleCancelIntent = () => {
-    setIntentConfirm(null)
+  const toggleImageSelect = (id: string) => {
+    setImagePicker((prev) => {
+      if (!prev) return prev
+      const next = new Set(prev.selectedImageIds)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return { ...prev, selectedImageIds: next }
+    })
   }
 
   return (
@@ -175,7 +165,51 @@ export default function ChatPage({ onOpenSettings }: ChatPageProps) {
                 />
               )
             })}
-            {(!activeConversation || activeConversation.messages.length === 0) && (
+
+            {/* Agent 式图片选择器 - 直接在聊天区域展示 */}
+            {imagePicker && (
+              <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#f0f0f0', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <RobotOutlined style={{ color: '#666', fontSize: 16 }} />
+                </div>
+                <div style={{ background: '#fff', padding: '16px', borderRadius: '12px 12px 12px 4px', boxShadow: '0 1px 2px rgba(0,0,0,0.1)', maxWidth: 600 }}>
+                  <Text strong style={{ fontSize: 14, display: 'block', marginBottom: 8 }}>
+                    找到 {imagePicker.histImages.length} 张历史图片，请选择要操作的图片：
+                  </Text>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, maxHeight: 280, overflow: 'auto', marginBottom: 12 }}>
+                    {imagePicker.histImages.map((img: any) => {
+                      const selected = imagePicker.selectedImageIds.has(img.id)
+                      return (
+                        <div key={img.id} onClick={() => toggleImageSelect(img.id)} style={{
+                          cursor: 'pointer', borderRadius: 8, overflow: 'hidden',
+                          border: selected ? '2px solid #1677ff' : '2px solid #f0f0f0',
+                          position: 'relative', transition: 'border-color 0.2s'
+                        }}>
+                          <img src={img.imageUrl || `data:image/png;base64,${img.imageBase64}`} alt=""
+                            style={{ width: '100%', height: 100, objectFit: 'cover', display: 'block' }} />
+                          {selected && <div style={{
+                            position: 'absolute', top: 4, right: 4, background: '#1677ff', color: '#fff',
+                            borderRadius: '50%', width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center'
+                          }}><CheckOutlined style={{ fontSize: 10 }} /></div>}
+                          <div style={{ padding: '4px 6px', background: '#fafafa' }}>
+                            <Text ellipsis style={{ fontSize: 11 }}>{img.content || '图片'}</Text>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                  <Space>
+                    <Button type="primary" icon={<CheckOutlined />} onClick={handleConfirmImagePicker}
+                      disabled={imagePicker.selectedImageIds.size === 0}>
+                      确认选择 ({imagePicker.selectedImageIds.size})
+                    </Button>
+                    <Button onClick={() => setImagePicker(null)}>取消</Button>
+                  </Space>
+                </div>
+              </div>
+            )}
+
+            {(!activeConversation || activeConversation.messages.length === 0) && !imagePicker && (
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#999' }}>
                 <RobotOutlined style={{ fontSize: 64, marginBottom: 16, opacity: 0.3 }} />
                 <Text type="secondary" style={{ fontSize: 16 }}>开始对话，或输入"画一张..."来生成图片</Text>
@@ -183,7 +217,6 @@ export default function ChatPage({ onOpenSettings }: ChatPageProps) {
                 <Space style={{ marginTop: 16 }}>
                   <Tag color="blue">自动选择模型</Tag>
                   <Tag color="green">语义分析</Tag>
-                  <Tag color="purple">Prompt 优化</Tag>
                   <Tag color="orange">跨 Provider</Tag>
                 </Space>
               </div>
@@ -194,83 +227,13 @@ export default function ChatPage({ onOpenSettings }: ChatPageProps) {
             onSend={handleSend}
             onCancel={cancelStream}
             loading={isStreaming}
-            disabled={!activeProviderId}
+            disabled={!activeProviderId || !!imagePicker}
             autoMode={autoMode}
             onAutoModeChange={setAutoMode}
             conversationId={activeConversationId}
           />
         </Content>
       </Layout>
-
-      {/* 意图确认弹窗 */}
-      <Modal
-        title={
-          <Space>
-            <ThunderboltOutlined style={{ color: '#1677ff' }} />
-            AI 意图分析
-          </Space>
-        }
-        open={!!intentConfirm?.visible}
-        onOk={handleConfirmIntent}
-        onCancel={handleCancelIntent}
-        okText="确认执行"
-        cancelText="取消"
-        width={520}
-        destroyOnClose
-      >
-        {intentConfirm?.loading ? (
-          <div style={{ textAlign: 'center', padding: 24 }}><Spin /><Text style={{ marginLeft: 8 }}>AI 分析中...</Text></div>
-        ) : intentConfirm && (
-          <div>
-            <Card size="small" style={{ marginBottom: 12 }}>
-              <Space direction="vertical" size={4} style={{ width: '100%' }}>
-                <Space>
-                  <Tag color={intentConfirm.action === 'edit' ? 'orange' : intentConfirm.action === 'generate' ? 'blue' : 'green'}>
-                    {intentConfirm.action === 'edit' ? '编辑图片' :
-                     intentConfirm.action === 'generate' ? '生成图片' :
-                     intentConfirm.action === 'analyze' ? '分析图片' : '对话'}
-                  </Tag>
-                  <Text type="secondary" style={{ fontSize: 12 }}>置信度 {((intentConfirm.confidence || 0) * 100).toFixed(0)}%</Text>
-                </Space>
-                {intentConfirm.reason && <Text style={{ fontSize: 13 }}>{intentConfirm.reason}</Text>}
-                <Text type="secondary" style={{ fontSize: 12 }}>"{intentConfirm.content.slice(0, 60)}{intentConfirm.content.length > 60 ? '...' : ''}"</Text>
-              </Space>
-            </Card>
-            {intentConfirm.histImages.length > 0 && (
-              <>
-                <Text style={{ fontSize: 13, marginBottom: 8, display: 'block' }}>
-                  选择参考图片（可多选，{intentConfirm.action === 'edit' ? '不选则使用最新一张' : '不选则纯文生图'}）：
-                </Text>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, maxHeight: 300, overflow: 'auto' }}>
-                  {intentConfirm.histImages.map((img: any) => {
-                    const selected = intentConfirm.selectedImageIds.has(img.id)
-                    return (
-                      <div key={img.id} onClick={() => {
-                        setIntentConfirm((prev) => {
-                          if (!prev) return prev
-                          const next = new Set(prev.selectedImageIds)
-                          if (next.has(img.id)) next.delete(img.id); else next.add(img.id)
-                          return { ...prev, selectedImageIds: next }
-                        })
-                      }} style={{
-                        cursor: 'pointer', borderRadius: 6, overflow: 'hidden',
-                        border: selected ? '2px solid #1677ff' : '2px solid #f0f0f0'
-                      }}>
-                        <img src={img.imageUrl || `data:image/png;base64,${img.imageBase64}`} alt=""
-                          style={{ width: '100%', height: 80, objectFit: 'cover', display: 'block' }} />
-                        {selected && <div style={{ position: 'absolute', top: 2, right: 2, background: '#1677ff', color: '#fff', borderRadius: 4, padding: '0 4px', fontSize: 10 }}><CheckOutlined /></div>}
-                        <div style={{ padding: '2px 4px', background: '#fafafa' }}>
-                          <Text ellipsis style={{ fontSize: 10 }}>{img.content || '图片'}</Text>
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              </>
-            )}
-          </div>
-        )}
-      </Modal>
     </Layout>
   )
 }
