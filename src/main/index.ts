@@ -23,7 +23,7 @@ function getAppIconPath(): string {
     return path.join(__dirname, '../../resources/icon.png')
   }
   if (process.platform === 'darwin') {
-    return path.join(process.resourcesPath, 'icon.icns')
+    return path.join(process.resourcesPath, 'icon.png')
   }
   if (process.platform === 'win32') {
     return path.join(process.resourcesPath, 'icon.ico')
