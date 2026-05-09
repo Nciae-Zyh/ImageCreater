@@ -35,12 +35,23 @@ pnpm dev
 # macOS
 pnpm build:mac
 
+# macOS Apple Silicon (M1/M2/M3/M4)
+pnpm build:mac:arm64
+
+# macOS Intel
+pnpm build:mac:x64
+
 # Windows
 pnpm build:win
 
 # Linux
 pnpm build:linux
 ```
+
+macOS Release 产物会按架构命名：
+
+- `ImageCreater-<version>-mac-arm64.dmg`: Apple Silicon Mac
+- `ImageCreater-<version>-mac-x64.dmg`: Intel Mac
 
 ## CI 自动发布
 

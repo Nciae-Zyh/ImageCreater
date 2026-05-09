@@ -96,6 +96,21 @@ jobs:
           path: artifacts
           merge-multiple: true
 
+      - name: Generate release notes
+        run: |
+          cat > RELEASE_NOTES.md <<'EOF'
+          ## 下载说明
+
+          - macOS Apple Silicon（M1/M2/M3/M4）：下载文件名包含 `mac-arm64` 的 `.dmg`
+          - macOS Intel：下载文件名包含 `mac-x64` 的 `.dmg`
+          - Windows 64 位：下载 `.exe`
+          - Linux 64 位：下载 `.AppImage`、`.deb` 或 `.rpm`
+
+          ## macOS 提示
+
+          当前 Release 包未做 Apple 官方公证。如果系统提示无法打开，请在访达中右键应用并选择“打开”。
+          EOF
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
@@ -103,5 +118,6 @@ jobs:
           name: ${{ github.ref_name }}
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
+          body_path: RELEASE_NOTES.md
           generate_release_notes: true
           files: artifacts/*

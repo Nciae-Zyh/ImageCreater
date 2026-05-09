@@ -1,6 +1,6 @@
 {
   "name": "image-creater",
-  "version": "1.0.4",
+  "version": "1.0.6",
   "description": "AI-powered cross-platform image generation tool",
   "main": "./out/main/index.js",
   "author": {
@@ -18,7 +18,9 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
-    "build:mac": "electron-vite build && electron-builder --mac --publish never",
+    "build:mac": "electron-vite build && electron-builder --mac --x64 --arm64 --publish never",
+    "build:mac:x64": "electron-vite build && electron-builder --mac --x64 --publish never",
+    "build:mac:arm64": "electron-vite build && electron-builder --mac --arm64 --publish never",
     "build:win": "electron-vite build && electron-builder --win --publish never",
     "build:linux": "electron-vite build && electron-builder --linux --publish never",
     "typecheck": "tsc --noEmit"

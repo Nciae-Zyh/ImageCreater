@@ -14,8 +14,16 @@ import { logger, cleanOldLogs, readLogs } from './utils/logger'
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 
+function getAppIconPath(): string {
+  return app.isPackaged
+    ? path.join(process.resourcesPath, 'icon.icns')
+    : path.join(__dirname, '../../resources/icon.png')
+}
+
 function createTray(): void {
-  const iconPath = path.join(__dirname, '../../build/tray-icon.png')
+  const iconPath = app.isPackaged
+    ? path.join(process.resourcesPath, 'tray-icon.png')
+    : path.join(__dirname, '../../build/tray-icon.png')
   const icon = fs.existsSync(iconPath)
     ? nativeImage.createFromPath(iconPath)
     : nativeImage.createEmpty()
@@ -58,6 +66,7 @@ function createWindow(): void {
     height: 800,
     minWidth: 800,
     minHeight: 600,
+    icon: getAppIconPath(),
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -84,6 +93,11 @@ function createWindow(): void {
 }
 
 app.whenReady().then(async () => {
+  if (process.platform === 'darwin') {
+    const dockIconPath = getAppIconPath()
+    if (fs.existsSync(dockIconPath)) app.dock?.setIcon(dockIconPath)
+  }
+
   // 打印存储信息
   const storageInfo = getStorageInfo()
   logger.info(`平台: ${storageInfo.platform}`)

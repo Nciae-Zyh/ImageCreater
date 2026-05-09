@@ -11,14 +11,16 @@ export async function initDatabase(): Promise<void> {
 
   const SQL = await initSqlJs({
     locateFile: (file: string) => {
+      const path = require('path')
       const candidates = [
-        require('path').join(__dirname, '../../node_modules/sql.js/dist', file),
-        require('path').join(__dirname, '../../../node_modules/sql.js/dist', file)
+        path.join(process.resourcesPath, 'sql.js', file),
+        path.join(__dirname, '../../node_modules/sql.js/dist', file),
+        path.join(__dirname, '../../../node_modules/sql.js/dist', file)
       ]
       for (const p of candidates) {
         if (fs.existsSync(p)) return p
       }
-      return require('path').join(__dirname, '../../node_modules/sql.js/dist', file)
+      return candidates[0]
     }
   })
 
