@@ -12,11 +12,21 @@ jobs:
       matrix:
         include:
           - os: macos-latest
-            platform: mac
+            platform: mac-x64
+            build_command: pnpm build:mac:x64
+            artifact_name: release-mac-x64
+          - os: macos-latest
+            platform: mac-arm64
+            build_command: pnpm build:mac:arm64
+            artifact_name: release-mac-arm64
           - os: ubuntu-latest
             platform: linux
+            build_command: pnpm build:linux
+            artifact_name: release-linux
           - os: windows-latest
             platform: win
+            build_command: pnpm build:win
+            artifact_name: release-windows
 
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
@@ -39,26 +49,17 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build Electron
-        if: matrix.platform != 'mac'
+        if: ${{ !startsWith(matrix.platform, 'mac-') }}
         run: pnpm build
 
-      - name: Build (${{ matrix.platform }})
-        if: matrix.platform != 'mac'
-        run: pnpm build:${{ matrix.platform }}
-
-      - name: Build (mac x64)
-        if: matrix.platform == 'mac'
-        run: pnpm build:mac:x64
-
-      - name: Build (mac arm64)
-        if: matrix.platform == 'mac'
-        run: pnpm build:mac:arm64
+      - name: Build package
+        run: ${{ matrix.build_command }}
 
       - name: Upload artifacts (macOS)
-        if: matrix.platform == 'mac'
+        if: ${{ startsWith(matrix.platform, 'mac-') }}
         uses: actions/upload-artifact@v4
         with:
-          name: release-mac
+          name: ${{ matrix.artifact_name }}
           path: |
             dist/*.dmg
             dist/*.zip
@@ -69,7 +70,7 @@ jobs:
         if: matrix.platform == 'linux'
         uses: actions/upload-artifact@v4
         with:
-          name: release-linux
+          name: ${{ matrix.artifact_name }}
           path: |
             dist/*.AppImage
             dist/*.deb
@@ -81,7 +82,7 @@ jobs:
         if: matrix.platform == 'win'
         uses: actions/upload-artifact@v4
         with:
-          name: release-windows
+          name: ${{ matrix.artifact_name }}
           path: |
             dist/*.exe
             dist/*.yml
@@ -112,7 +113,7 @@ jobs:
 
           ## macOS 提示
 
-          当前 Release 包未做 Apple 官方公证。如果系统提示无法打开，请在访达中右键应用并选择“打开”。
+          当前 Release 包会在无 Apple 证书时使用 ad-hoc 签名，但仍未做 Apple 官方公证。如果系统拦截，请在访达中右键应用并选择“打开”。
           EOF
 
       - name: Create Release
