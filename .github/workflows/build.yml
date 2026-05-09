@@ -39,16 +39,20 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build Electron
+        if: matrix.platform != 'mac'
         run: pnpm build
 
       - name: Build (${{ matrix.platform }})
         if: matrix.platform != 'mac'
         run: pnpm build:${{ matrix.platform }}
 
-      - name: Build (mac, retry once for flaky hdiutil)
+      - name: Build (mac x64)
         if: matrix.platform == 'mac'
-        run: |
-          pnpm build:mac || pnpm build:mac
+        run: pnpm build:mac:x64
+
+      - name: Build (mac arm64)
+        if: matrix.platform == 'mac'
+        run: pnpm build:mac:arm64
 
       - name: Upload artifacts (macOS)
         if: matrix.platform == 'mac'
