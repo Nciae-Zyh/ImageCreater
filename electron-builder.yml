@@ -15,6 +15,12 @@ extraResources:
     to: sql.js/sql-wasm.wasm
   - from: build/tray-icon.png
     to: tray-icon.png
+  - from: resources/icon.icns
+    to: icon.icns
+  - from: resources/icon.ico
+    to: icon.ico
+  - from: resources/icon.png
+    to: icon.png
 
 mac:
   icon: resources/icon.icns

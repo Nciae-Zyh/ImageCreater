@@ -14,10 +14,21 @@ import { logger, cleanOldLogs, readLogs } from './utils/logger'
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 
+const APP_NAME = 'ImageCreater'
+
+app.setName(APP_NAME)
+
 function getAppIconPath(): string {
-  return app.isPackaged
-    ? path.join(process.resourcesPath, 'icon.icns')
-    : path.join(__dirname, '../../resources/icon.png')
+  if (!app.isPackaged) {
+    return path.join(__dirname, '../../resources/icon.png')
+  }
+  if (process.platform === 'darwin') {
+    return path.join(process.resourcesPath, 'icon.icns')
+  }
+  if (process.platform === 'win32') {
+    return path.join(process.resourcesPath, 'icon.ico')
+  }
+  return path.join(process.resourcesPath, 'icon.png')
 }
 
 function createTray(): void {
@@ -29,7 +40,7 @@ function createTray(): void {
     : nativeImage.createEmpty()
 
   tray = new Tray(icon)
-  tray.setToolTip('ImageCreater')
+  tray.setToolTip(APP_NAME)
 
   const contextMenu = Menu.buildFromTemplate([
     { label: '显示窗口', click: () => mainWindow?.show() },
@@ -62,6 +73,7 @@ function createWindow(): void {
   const isMac = process.platform === 'darwin'
 
   mainWindow = new BrowserWindow({
+    title: APP_NAME,
     width: 1200,
     height: 800,
     minWidth: 800,
@@ -93,6 +105,8 @@ function createWindow(): void {
 }
 
 app.whenReady().then(async () => {
+  app.setAboutPanelOptions({ applicationName: APP_NAME })
+
   if (process.platform === 'darwin') {
     const dockIconPath = getAppIconPath()
     if (fs.existsSync(dockIconPath)) app.dock?.setIcon(dockIconPath)
