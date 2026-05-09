@@ -6,6 +6,8 @@ import { registerChatHandlers } from './ipc/chat'
 import { registerSettingsHandlers } from './ipc/settings'
 import { registerLogHandlers } from './ipc/log'
 import { initDatabase } from './store/database'
+import { loadR2Config } from './store/appStore'
+import { initR2 } from './services/r2Storage'
 import { getImagesDir, getStorageInfo } from './utils/paths'
 import { logger, cleanOldLogs, readLogs } from './utils/logger'
 
@@ -95,6 +97,16 @@ app.whenReady().then(async () => {
     logger.info('数据库初始化成功')
   } catch (error) {
     logger.error('数据库初始化失败:', error)
+  }
+
+  try {
+    const r2Config = await loadR2Config()
+    if (r2Config) {
+      initR2(r2Config)
+      logger.info('R2 配置加载成功')
+    }
+  } catch (error) {
+    logger.error('R2 配置加载失败:', error)
   }
 
   // 注册自定义协议加载本地图片

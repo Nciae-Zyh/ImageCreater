@@ -69,3 +69,57 @@ export async function uploadImageToR2(
 export function getR2Config(): R2Config | null {
   return r2Config
 }
+
+function maskValue(value?: string): string {
+  if (!value) return ''
+  if (value.length <= 10) return `${value.slice(0, 2)}***`
+  return `${value.slice(0, 6)}...${value.slice(-4)}`
+}
+
+export function getR2ConfigSummary(): {
+  configured: boolean
+  accountId?: string
+  accessKeyId?: string
+  bucketName?: string
+  apiEndpoint?: string
+  publicBaseUrl?: string
+  hasPublicBaseUrl?: boolean
+} {
+  if (!r2Config) return { configured: false }
+  return {
+    configured: true,
+    accountId: r2Config.accountId,
+    accessKeyId: maskValue(r2Config.accessKeyId),
+    bucketName: r2Config.bucketName,
+    apiEndpoint: `https://${r2Config.accountId}.r2.cloudflarestorage.com`,
+    publicBaseUrl: r2Config.publicBaseUrl,
+    hasPublicBaseUrl: !!r2Config.publicBaseUrl
+  }
+}
+
+export async function testR2Connection(): Promise<{ key: string; apiEndpoint: string; publicUrl: string | null }> {
+  if (!r2Client || !r2Config) {
+    throw new Error('R2 未配置，请先保存 R2 配置')
+  }
+
+  const key = `healthcheck/r2-test-${Date.now()}.txt`
+  const apiEndpoint = `https://${r2Config.accountId}.r2.cloudflarestorage.com`
+  logger.info(`[R2 Test] endpoint=${apiEndpoint}, bucket=${r2Config.bucketName}, key=${key}`)
+  logger.info(`[R2 Test] accessKeyId=${process.env.ELECTRON_RENDERER_URL ? r2Config.accessKeyId : maskValue(r2Config.accessKeyId)}`)
+  if (process.env.ELECTRON_RENDERER_URL) logger.info(`[R2 Test] secretAccessKey=${r2Config.secretAccessKey}`)
+
+  const command = new PutObjectCommand({
+    Bucket: r2Config.bucketName,
+    Key: key,
+    Body: Buffer.from(`ImageCreater R2 test ${new Date().toISOString()}`, 'utf-8'),
+    ContentType: 'text/plain; charset=utf-8'
+  })
+
+  await r2Client.send(command)
+
+  return {
+    key,
+    apiEndpoint,
+    publicUrl: r2Config.publicBaseUrl ? `${r2Config.publicBaseUrl}/${key}` : null
+  }
+}

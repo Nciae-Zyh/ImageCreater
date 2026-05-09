@@ -20,6 +20,10 @@ function isHttpUrl(url?: string): boolean {
   return !!url && /^https?:\/\//i.test(url)
 }
 
+function isPrivateR2ApiUrl(url?: string): boolean {
+  return !!url && /https:\/\/[^/]+\.r2\.cloudflarestorage\.com\//i.test(url)
+}
+
 function isMimoBaseUrl(baseUrl: string): boolean {
   return /xiaomimimo\.com/i.test(baseUrl)
 }
@@ -39,7 +43,7 @@ function getAllImagesFromHistory(conversationId: string): HistoryImageItem[] {
 function toMessageImage(item: HistoryImageItem): MessageImage | null {
   const path = require('path')
   logger.info(`[Router] 转换图片: id=${item.id}, image_url=${item.imageUrl}`)
-  if (item.imageUrl.startsWith('http')) {
+  if (isHttpUrl(item.imageUrl) && !isPrivateR2ApiUrl(item.imageUrl)) {
     logger.info(`[Router] 直接使用远程 URL 图像: ${item.imageUrl.slice(0, 140)}`)
     return { type: 'image', mimeType: 'image/png', data: '', url: item.imageUrl }
   }
@@ -78,7 +82,7 @@ async function selectImageByAI(
       const img = images[i]
       logger.info(`[VisionSelect] 加载图片 ${i}: id=${img.id}, url=${img.imageUrl.slice(0, 80)}`)
 
-      if (isHttpUrl(img.imageUrl)) {
+      if (isHttpUrl(img.imageUrl) && !isPrivateR2ApiUrl(img.imageUrl)) {
         imageParts.push({
           type: 'image_url',
           image_url: { url: img.imageUrl, detail: 'low' }

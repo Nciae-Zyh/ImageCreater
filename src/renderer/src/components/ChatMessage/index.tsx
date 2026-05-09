@@ -1,6 +1,10 @@
 import { useState, useEffect } from 'react'
 import { Typography, Space, Tag, Spin, Image, Button, Alert, message as antMessage } from 'antd'
-import { UserOutlined, RobotOutlined, ClockCircleOutlined, DownloadOutlined, ExpandOutlined, CheckCircleOutlined, LoadingOutlined, CloseCircleOutlined, DeleteOutlined, CheckOutlined } from '@ant-design/icons'
+import {
+  UserOutlined, RobotOutlined, ClockCircleOutlined, DownloadOutlined, ExpandOutlined,
+  CheckCircleOutlined, LoadingOutlined, CloseCircleOutlined, DeleteOutlined, CheckOutlined,
+  BulbOutlined, ExperimentOutlined
+} from '@ant-design/icons'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
@@ -29,7 +33,6 @@ interface ChatMessageProps {
   error?: { message: string; type: string; code?: string } | null
   conversationId?: string
   onDelete?: (messageId: string) => void
-  // 内联图片选择器
   needUserSelect?: boolean
   histImages?: any[]
   selectedImageIds?: Set<string>
@@ -37,7 +40,6 @@ interface ChatMessageProps {
   onToggleImage?: (id: string) => void
   onConfirmImages?: () => void
   onCancelSelect?: () => void
-  // 内联 prompt 选择器
   promptChoice?: {
     originalPrompt: string
     optimizedPrompt: string
@@ -65,18 +67,21 @@ function getImageSrc(msg: any): string | null {
 
 function parseMeta(m?: string | any) {
   if (!m) return {}
-  if (typeof m === 'string') { try { return JSON.parse(m) } catch { return {} } }
+  if (typeof m === 'string') {
+    try { return JSON.parse(m) } catch { return {} }
+  }
   return m
 }
 
-const markdownStyles: React.CSSProperties = {
-  fontSize: 14,
-  lineHeight: 1.7,
-  color: '#1a1a1a',
+function getErrorTitle(type: string) {
+  if (type === 'moderation_blocked') return '内容安全拦截'
+  if (type === 'api_error') return 'API 错误'
+  if (type === 'network_error') return '网络错误'
+  return '错误'
 }
 
 export default function ChatMessage({
-  message, streaming = false, error, conversationId, onDelete,
+  message, streaming = false, error, onDelete,
   needUserSelect, histImages, selectedImageIds, isLatest,
   onToggleImage, onConfirmImages, onCancelSelect,
   promptChoice, onChooseOptimizedPrompt, onChooseOriginalPrompt, onCancelPromptChoice,
@@ -86,7 +91,6 @@ export default function ChatMessage({
   const isUser = message.role === 'user'
   const meta = parseMeta(message.metadata)
   const imageSrc = getImageSrc(message)
-  // needUserSelect 时优先保留真实 prompt（避免被固定提示文案覆盖）
   const displayContent = needUserSelect
     ? (message.content || meta.originalPrompt || meta.prompt || meta.optimizedPrompt || meta.displayContent || '')
     : message.content
@@ -94,9 +98,8 @@ export default function ChatMessage({
   const hasContent = !!message.content
   const hasImage = !!imageSrc
   const hasPartial = streaming && !!message.partialImage && !hasImage
-
-  // 是否显示内联图片选择器：需要用户选择 + 是最新消息
   const showInlinePicker = needUserSelect && isLatest && histImages && histImages.length > 0
+  const showAgentHeader = !isUser && (streaming || steps.length > 0 || promptOptimizing || promptChoice || showInlinePicker)
 
   useEffect(() => {
     if (imageSrc) setImgLoading(true)
@@ -111,53 +114,65 @@ export default function ChatMessage({
       } else {
         antMessage.error(result.error || '保存失败')
       }
-    } catch { antMessage.error('保存失败') }
+    } catch {
+      antMessage.error('保存失败')
+    }
   }
 
   if (isUser) {
     return (
-      <div className="message-enter" style={{ display: 'flex', gap: 12, flexDirection: 'row-reverse', alignItems: 'flex-start' }}>
-        <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#1677ff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-          <UserOutlined style={{ color: '#fff', fontSize: 16 }} />
+      <div className="chat-message chat-message-user message-enter">
+        <div className="message-avatar message-avatar-user">
+          <UserOutlined />
         </div>
-        <div style={{ maxWidth: '70%', background: '#1677ff', color: '#fff', padding: '12px 16px', borderRadius: '12px 12px 4px 12px', boxShadow: '0 1px 2px rgba(0,0,0,0.1)', wordBreak: 'break-word' }}>
-          {message.imageData?.map((img, i) => (
-            <img key={i} src={`data:${img.mimeType};base64,${img.data}`} alt="" style={{ maxWidth: 200, maxHeight: 200, borderRadius: 8, objectFit: 'cover', display: 'block', marginBottom: 8 }} />
-          ))}
-          {message.content && <Paragraph style={{ margin: 0, color: 'inherit', whiteSpace: 'pre-wrap' }}>{message.content}</Paragraph>}
+        <div className="message-stack message-stack-user">
+          <div className="message-bubble user-bubble">
+            {message.imageData?.map((img, i) => (
+              <img
+                key={i}
+                src={`data:${img.mimeType};base64,${img.data}`}
+                alt=""
+                className="message-attachment-thumb"
+              />
+            ))}
+            {message.content && (
+              <Paragraph className="user-message-text">{message.content}</Paragraph>
+            )}
+          </div>
         </div>
       </div>
     )
   }
 
-  // 助手消息
   return (
-    <div className="message-enter" style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-      <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#f0f0f0', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-        <RobotOutlined style={{ color: '#666', fontSize: 16 }} />
+    <div className="chat-message chat-message-agent message-enter">
+      <div className="message-avatar message-avatar-agent">
+        <RobotOutlined />
       </div>
-      <div style={{ maxWidth: '70%', display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {/* 步骤进度 */}
+      <div className="message-stack">
+        {showAgentHeader && (
+          <div className="agent-status-strip">
+            <span className={streaming || promptOptimizing ? 'agent-pulse-dot active' : 'agent-pulse-dot'} />
+            <Text className="agent-status-title">
+              {streaming || promptOptimizing ? 'Agent 正在处理' : 'Agent 已准备好下一步'}
+            </Text>
+          </div>
+        )}
+
         {steps.length > 0 && (
-          <div style={{ background: '#f6f8fa', borderRadius: 8, padding: '8px 12px', border: '1px solid #e8e8e8' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: streaming ? 8 : 0 }}>
-              {streaming ? <LoadingOutlined style={{ color: '#1677ff' }} /> : <CheckCircleOutlined style={{ color: '#52c41a' }} />}
-              <Text style={{ fontSize: 12, color: '#666', fontWeight: 500 }}>
-                {streaming ? `处理中... (${steps.length} 步)` : `处理完成 (${steps.length} 步)`}
-              </Text>
+          <div className="agent-panel agent-steps-panel">
+            <div className="agent-panel-header">
+              {streaming ? <LoadingOutlined /> : <CheckCircleOutlined />}
+              <Text strong>{streaming ? `执行中 · ${steps.length} 步` : `执行完成 · ${steps.length} 步`}</Text>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+            <div className="agent-step-list">
               {steps.map((step, i) => {
                 const isLast = i === steps.length - 1
                 const isDone = !streaming || !isLast
                 return (
-                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, opacity: isDone ? 1 : 0.7 }}>
-                    {isDone ? (
-                      <CheckCircleOutlined style={{ fontSize: 10, color: '#52c41a', flexShrink: 0 }} />
-                    ) : (
-                      <Spin size="small" />
-                    )}
-                    <Text style={{ fontSize: 12, color: isDone ? '#555' : '#1677ff' }}>{step}</Text>
+                  <div key={i} className={isDone ? 'agent-step done' : 'agent-step active'}>
+                    {isDone ? <CheckCircleOutlined /> : <Spin size="small" />}
+                    <Text>{step}</Text>
                   </div>
                 )
               })}
@@ -165,200 +180,207 @@ export default function ChatMessage({
           </div>
         )}
 
-        {/* 内联 Prompt 选择器 */}
         {isLatest && promptOptimizing && !promptChoice && (
-          <div style={{ background: '#f6f8fa', borderRadius: 8, padding: 12, border: '1px solid #e8e8e8' }}>
-            <Space>
-              <Spin size="small" />
-              <Text type="secondary" style={{ fontSize: 12 }}>正在优化 Prompt...</Text>
-            </Space>
+          <div className="agent-panel agent-thinking-panel">
+            <Spin size="small" />
+            <div>
+              <Text strong>正在拆解你的意图</Text>
+              <Text type="secondary">优化 prompt、选择合适的图像流程。</Text>
+            </div>
           </div>
         )}
 
         {isLatest && promptChoice && (
-          <div style={{ background: '#f6f8fa', borderRadius: 8, padding: 12, border: '1px solid #e8e8e8' }}>
-            <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 8 }}>
-              已生成候选 Prompt，请选择发送内容：
-            </Text>
-            <div style={{ marginBottom: 10 }}>
-              <div style={{ background: '#fff', border: '1px solid #d9d9d9', borderRadius: 8, padding: 10, marginBottom: 10 }}>
-                <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 6 }}>原始 Prompt</Text>
-                <Text style={{ fontSize: 12, whiteSpace: 'pre-wrap' }}>{promptChoice.originalPrompt}</Text>
+          <div className="agent-panel prompt-choice-panel">
+            <div className="agent-panel-header">
+              <BulbOutlined />
+              <div>
+                <Text strong>我整理了几个可执行 prompt</Text>
+                <Text type="secondary">选择一个后我会继续生成或编辑图片。</Text>
               </div>
-              {(promptChoice.candidates && promptChoice.candidates.length > 0) ? (
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 8 }}>
-                  {promptChoice.candidates.map((candidate, idx) => {
-                    const isRecommended = idx === (promptChoice.recommendedIndex ?? 0)
-                    return (
-                      <div key={idx} style={{
-                        background: '#fff',
-                        border: isRecommended ? '1px solid #1677ff' : '1px solid #d9d9d9',
-                        borderRadius: 8,
-                        padding: 10
-                      }}>
-                        <Space style={{ marginBottom: 6, display: 'flex', justifyContent: 'space-between' }}>
-                          <Text style={{ fontSize: 12, color: isRecommended ? '#1677ff' : '#666' }}>
-                            {isRecommended ? `优化 Prompt ${idx + 1}（推荐）` : `优化 Prompt ${idx + 1}`}
-                          </Text>
-                          {candidate.why && <Text type="secondary" style={{ fontSize: 11 }}>{candidate.why}</Text>}
-                        </Space>
-                        <Text style={{ fontSize: 12, whiteSpace: 'pre-wrap', display: 'block', marginBottom: 8 }}>{candidate.prompt}</Text>
-                        <Button size="small" type={isRecommended ? 'primary' : 'default'} onClick={() => onChooseOptimizedPrompt?.(idx)}>
-                          使用这个优化 Prompt
-                        </Button>
-                      </div>
-                    )
-                  })}
-                </div>
-              ) : (
-                <div style={{ background: '#fff', border: '1px solid #91caff', borderRadius: 8, padding: 10 }}>
-                  <Text style={{ fontSize: 12, color: '#1677ff', display: 'block', marginBottom: 6 }}>优化 Prompt</Text>
-                  <Text style={{ fontSize: 12, whiteSpace: 'pre-wrap' }}>{promptChoice.optimizedPrompt}</Text>
-                </div>
-              )}
             </div>
+
+            <div className="prompt-original-card">
+              <Text type="secondary">你的原始输入</Text>
+              <Text>{promptChoice.originalPrompt}</Text>
+            </div>
+
+            {(promptChoice.candidates && promptChoice.candidates.length > 0) ? (
+              <div className="prompt-candidate-list">
+                {promptChoice.candidates.map((candidate, idx) => {
+                  const isRecommended = idx === (promptChoice.recommendedIndex ?? 0)
+                  return (
+                    <button
+                      key={idx}
+                      type="button"
+                      className={isRecommended ? 'prompt-candidate recommended' : 'prompt-candidate'}
+                      onClick={() => onChooseOptimizedPrompt?.(idx)}
+                    >
+                      <span className="prompt-candidate-topline">
+                        <span>
+                          <ExperimentOutlined />
+                          {`方案 ${idx + 1}`}
+                        </span>
+                        {isRecommended && <Tag color="blue">推荐</Tag>}
+                      </span>
+                      <span className="prompt-candidate-text">{candidate.prompt}</span>
+                      {candidate.why && <span className="prompt-candidate-reason">{candidate.why}</span>}
+                    </button>
+                  )
+                })}
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="prompt-candidate recommended"
+                onClick={() => onChooseOptimizedPrompt?.()}
+              >
+                <span className="prompt-candidate-topline">
+                  <span><ExperimentOutlined />优化 Prompt</span>
+                  <Tag color="blue">推荐</Tag>
+                </span>
+                <span className="prompt-candidate-text">{promptChoice.optimizedPrompt}</span>
+              </button>
+            )}
+
             <Space>
-              <Button size="small" onClick={onChooseOriginalPrompt}>使用原始 Prompt</Button>
-              <Button size="small" onClick={onCancelPromptChoice}>取消</Button>
+              <Button size="small" onClick={onChooseOriginalPrompt}>用原始输入继续</Button>
+              <Button size="small" type="text" onClick={onCancelPromptChoice}>取消</Button>
             </Space>
           </div>
         )}
 
-        {/* 文本内容 */}
         {hasContent && (
-          <div style={{ background: '#fff', padding: '12px 16px', borderRadius: '12px 12px 12px 4px', boxShadow: '0 1px 2px rgba(0,0,0,0.1)', wordBreak: 'break-word', overflow: 'hidden' }}>
-            <div style={markdownStyles} className="markdown-body">
+          <div className="message-bubble agent-bubble">
+            <div className="markdown-body">
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{displayContent}</ReactMarkdown>
               {streaming && <span className="streaming-cursor" />}
             </div>
           </div>
         )}
 
-        {/* 图片 */}
         {hasImage && (
-          <div style={{ position: 'relative', display: 'inline-block' }}>
-            {imgLoading && <div style={{ display: 'flex', justifyContent: 'center', padding: 20 }}><Spin /></div>}
+          <div className="agent-image-wrap">
+            {imgLoading && <div className="image-loading-placeholder"><Spin /></div>}
             <Image
               src={imageSrc!}
-              width={320}
-              style={{ borderRadius: 8, display: imgLoading ? 'none' : 'block' }}
+              width={360}
+              style={{ borderRadius: 12, display: imgLoading ? 'none' : 'block' }}
               onLoad={() => setImgLoading(false)}
               onError={() => setImgLoading(false)}
               preview={{ mask: <ExpandOutlined /> }}
             />
             {!imgLoading && (
-              <Space style={{ position: 'absolute', top: 8, right: 8 }}>
+              <Space className="image-action-bar">
                 <Button type="primary" size="small" icon={<DownloadOutlined />} onClick={handleDownload} />
               </Space>
             )}
           </div>
         )}
 
-        {/* 流式部分图片 */}
         {hasPartial && (
-          <div style={{ position: 'relative', display: 'inline-block' }}>
+          <div className="agent-image-wrap partial-image-wrap">
             <img
               src={`data:image/png;base64,${message.partialImage}`}
               alt="生成中..."
-              style={{ width: 320, borderRadius: 8, opacity: 0.85, border: '2px dashed #1677ff' }}
+              className="partial-image"
             />
-            <div style={{
-              position: 'absolute', bottom: 8, left: 8,
-              background: 'rgba(22,119,255,0.85)', color: '#fff',
-              padding: '2px 8px', borderRadius: 4, fontSize: 11
-            }}>
-              生成中...
-            </div>
+            <div className="partial-image-label">生成中...</div>
           </div>
         )}
 
-        {/* 内联图片选择器 — 仅最新消息显示 */}
         {showInlinePicker && (
-          <div style={{ background: '#f6f8fa', borderRadius: 8, padding: 12, border: '1px solid #e8e8e8' }}>
-            <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 8 }}>
-              找到 {histImages.length} 张历史图片，请选择要操作的图片：
-            </Text>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, maxHeight: 280, overflow: 'auto', marginBottom: 12 }}>
+          <div className="agent-panel image-picker-panel">
+            <div className="agent-panel-header">
+              <BulbOutlined />
+              <div>
+                <Text strong>{`我找到了 ${histImages.length} 张历史图片`}</Text>
+                <Text type="secondary">选中要编辑或参考的图片，我会带着它继续优化。</Text>
+              </div>
+            </div>
+            <div className="inline-image-grid">
               {histImages.map((img: any) => {
                 const selected = selectedImageIds?.has(img.id) || false
                 return (
-                  <div key={img.id} onClick={() => onToggleImage?.(img.id)} style={{
-                    cursor: 'pointer', borderRadius: 8, overflow: 'hidden',
-                    border: selected ? '2px solid #1677ff' : '2px solid #e8e8e8',
-                    position: 'relative', transition: 'border-color 0.2s'
-                  }}>
-                    <img src={img.imageUrl || `data:image/png;base64,${img.imageBase64}`} alt=""
-                      style={{ width: '100%', height: 100, objectFit: 'cover', display: 'block' }} />
-                    {selected && <div style={{
-                      position: 'absolute', top: 4, right: 4, background: '#1677ff', color: '#fff',
-                      borderRadius: '50%', width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center'
-                    }}><CheckOutlined style={{ fontSize: 10 }} /></div>}
-                    <div style={{ padding: '4px 6px', background: '#fafafa' }}>
-                      <Text ellipsis style={{ fontSize: 11 }}>{img.content || '图片'}</Text>
-                    </div>
-                  </div>
+                  <button
+                    key={img.id}
+                    type="button"
+                    onClick={() => onToggleImage?.(img.id)}
+                    className={selected ? 'inline-image-card selected' : 'inline-image-card'}
+                  >
+                    <img src={img.imageUrl || `data:image/png;base64,${img.imageBase64}`} alt="" />
+                    {selected && (
+                      <span className="inline-image-check">
+                        <CheckOutlined />
+                      </span>
+                    )}
+                    <span>{img.content || '图片'}</span>
+                  </button>
                 )
               })}
             </div>
             <Space>
-              <Button type="primary" size="small" icon={<CheckOutlined />} onClick={onConfirmImages}
-                disabled={!selectedImageIds || selectedImageIds.size === 0}>
+              <Button
+                type="primary"
+                size="small"
+                icon={<CheckOutlined />}
+                onClick={onConfirmImages}
+                disabled={!selectedImageIds || selectedImageIds.size === 0}
+              >
                 确认选择 ({selectedImageIds?.size || 0})
               </Button>
-              <Button size="small" onClick={onCancelSelect}>取消</Button>
+              <Button size="small" type="text" onClick={onCancelSelect}>取消</Button>
             </Space>
           </div>
         )}
 
-        {/* 错误提示 */}
         {error && (
           <Alert
             message={
               <Space direction="vertical" size={2}>
                 <Space>
-                  <CloseCircleOutlined style={{ color: '#ff4d4f' }} />
-                  <Text strong style={{ color: '#ff4d4f' }}>
-                    {error.type === 'moderation_blocked' ? '内容安全拦截' :
-                     error.type === 'api_error' ? 'API 错误' :
-                     error.type === 'network_error' ? '网络错误' : '错误'}
-                  </Text>
+                  <CloseCircleOutlined className="message-error-icon" />
+                  <Text strong className="message-error-title">{getErrorTitle(error.type)}</Text>
                 </Space>
-                <Text style={{ fontSize: 13 }}>{error.message}</Text>
-                {error.code && <Text type="secondary" style={{ fontSize: 11 }}>错误码: {error.code}</Text>}
+                <Text className="message-error-detail">{error.message}</Text>
+                {error.code && <Text type="secondary" className="message-error-code">错误码: {error.code}</Text>}
               </Space>
             }
             type="error"
             showIcon={false}
-            style={{ borderRadius: 8 }}
+            className="message-error-alert"
           />
         )}
 
-        {/* 加载状态 */}
         {!hasContent && !hasImage && steps.length === 0 && streaming && !error && (
-          <div style={{ background: '#fff', padding: '12px 16px', borderRadius: 8, boxShadow: '0 1px 2px rgba(0,0,0,0.1)' }}>
-            <Space><Spin size="small" /><Text type="secondary">处理中...</Text></Space>
+          <div className="agent-panel agent-thinking-panel">
+            <Spin size="small" />
+            <Text type="secondary">处理中...</Text>
           </div>
         )}
 
-        {/* 元数据 + 删除 */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+        <div className="message-meta-row">
           {(meta.model || meta.duration) && (
             <>
-              {meta.model && <Tag style={{ fontSize: 10, borderRadius: 4 }}>{meta.model}</Tag>}
+              {meta.model && <Tag className="message-meta-tag">{meta.model}</Tag>}
               {meta.duration && (
-                <Text type="secondary" style={{ fontSize: 10 }}>
-                  <ClockCircleOutlined style={{ marginRight: 2 }} />{(meta.duration / 1000).toFixed(1)}s
+                <Text type="secondary" className="message-duration">
+                  <ClockCircleOutlined />{(meta.duration / 1000).toFixed(1)}s
                 </Text>
               )}
               {meta.imageModel && meta.imageModel !== meta.model && (
-                <Tag color="orange" style={{ fontSize: 10, borderRadius: 4 }}>{meta.imageModel}</Tag>
+                <Tag color="orange" className="message-meta-tag">{meta.imageModel}</Tag>
               )}
             </>
           )}
           {!streaming && onDelete && (
-            <Button type="text" size="small" icon={<DeleteOutlined />}
+            <Button
+              type="text"
+              size="small"
+              icon={<DeleteOutlined />}
               onClick={() => onDelete(message.id)}
-              style={{ fontSize: 10, color: '#999', padding: '0 4px', height: 20 }} />
+              className="message-delete-button"
+            />
           )}
         </div>
       </div>

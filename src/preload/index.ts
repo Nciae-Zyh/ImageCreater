@@ -99,7 +99,8 @@ try {
 
     r2: {
       configure: (config: any) => ipcRenderer.invoke('r2:configure', config),
-      status: () => ipcRenderer.invoke('r2:status')
+      status: () => ipcRenderer.invoke('r2:status'),
+      test: () => ipcRenderer.invoke('r2:test')
     },
 
     log: {

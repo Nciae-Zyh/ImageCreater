@@ -150,9 +150,9 @@ export default function ModelPopover({ autoMode, onAutoModeChange }: ModelPopove
         icon={<SettingOutlined />}
         size="small"
         style={{
-          width: 36,
-          height: 36,
-          borderRadius: 8,
+          width: 38,
+          height: 38,
+          borderRadius: 12,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center'

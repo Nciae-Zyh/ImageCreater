@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import {
   Drawer, Form, Input, Button, List, Typography, Space, Popconfirm,
-  Tag, message, Divider, Alert, Badge, Card, Collapse
+  Tag, message, Divider, Alert, Badge, Card, Collapse, Descriptions
 } from 'antd'
 import {
   PlusOutlined, DeleteOutlined, CheckCircleOutlined, SettingOutlined,
@@ -239,11 +239,31 @@ function R2ConfigSection() {
   const [r2Form] = Form.useForm()
   const [r2Status, setR2Status] = useState<'loading' | 'configured' | 'not_configured'>('loading')
   const [r2Loading, setR2Loading] = useState(false)
+  const [r2Testing, setR2Testing] = useState(false)
+  const [r2Info, setR2Info] = useState<any>(null)
+
+  const refreshR2Status = async () => {
+    try {
+      const res = await window.electronAPI.r2.status()
+      setR2Status(res.data?.configured ? 'configured' : 'not_configured')
+      setR2Info(res.data || null)
+      if (res.data?.configured) {
+        r2Form.setFieldsValue({
+          accountId: res.data.accountId,
+          accessKeyId: undefined,
+          secretAccessKey: undefined,
+          bucketName: res.data.bucketName,
+          publicBaseUrl: res.data.publicBaseUrl
+        })
+      }
+    } catch {
+      setR2Status('not_configured')
+      setR2Info(null)
+    }
+  }
 
   useEffect(() => {
-    window.electronAPI.r2.status().then((res) => {
-      setR2Status(res.data?.configured ? 'configured' : 'not_configured')
-    }).catch(() => setR2Status('not_configured'))
+    refreshR2Status()
   }, [])
 
   const handleR2Save = async () => {
@@ -253,7 +273,8 @@ function R2ConfigSection() {
       const result = await window.electronAPI.r2.configure(values)
       if (result.success) {
         message.success('R2 配置已保存')
-        setR2Status('configured')
+        await refreshR2Status()
+        r2Form.setFieldsValue({ accessKeyId: undefined, secretAccessKey: undefined })
       } else {
         message.error(result.error || '配置失败')
       }
@@ -261,6 +282,24 @@ function R2ConfigSection() {
       if (err instanceof Error) message.error(err.message)
     } finally {
       setR2Loading(false)
+    }
+  }
+
+  const handleR2Test = async () => {
+    try {
+      setR2Testing(true)
+      const result = await window.electronAPI.r2.test()
+      if (result.success) {
+        message.success(`R2 测试成功：${result.data?.key || 'healthcheck object 已写入'}`)
+        await refreshR2Status()
+      } else {
+        message.error({
+          content: result.error || 'R2 测试失败',
+          duration: 6
+        })
+      }
+    } finally {
+      setR2Testing(false)
     }
   }
 
@@ -280,10 +319,30 @@ function R2ConfigSection() {
           <div>
             <Alert
               message="配置 R2 后，用户上传和生成的图片都会自动上传到云端"
+              description="上传始终使用 Account ID 推导出的 R2 S3 API Endpoint；公网访问地址只用于图片回显 URL，不参与签名。"
               type="info"
               showIcon
               style={{ marginBottom: 12 }}
             />
+            {r2Status === 'configured' && r2Info && (
+              <Descriptions
+                size="small"
+                bordered
+                column={1}
+                style={{ marginBottom: 12 }}
+                items={[
+                  { key: 'accountId', label: 'Account ID', children: r2Info.accountId || '-' },
+                  { key: 'apiEndpoint', label: 'S3 API Endpoint', children: r2Info.apiEndpoint || '-' },
+                  { key: 'accessKeyId', label: 'Access Key', children: r2Info.accessKeyId || '-' },
+                  { key: 'bucketName', label: 'Bucket', children: r2Info.bucketName || '-' },
+                  {
+                    key: 'publicBaseUrl',
+                    label: '公网访问地址',
+                    children: r2Info.publicBaseUrl || <Text type="secondary">未配置，应用内回显使用本地备份</Text>
+                  }
+                ]}
+              />
+            )}
             <Alert
               message={
                 <span>
@@ -304,22 +363,22 @@ function R2ConfigSection() {
                 name="accountId"
                 label="Account ID"
                 rules={[{ required: true }]}
-                extra="在 R2 概览页面右侧可见"
+                extra="用于生成 S3 API Endpoint：https://<Account ID>.r2.cloudflarestorage.com"
               >
                 <Input placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
               </Form.Item>
               <Form.Item
                 name="accessKeyId"
                 label="Access Key ID"
-                rules={[{ required: true }]}
-                extra="创建 API Token 时获得"
+                rules={[{ required: r2Status !== 'configured' }]}
+                extra={r2Status === 'configured' ? `当前已保存：${r2Info?.accessKeyId || '已脱敏'}；如需修改请重新填写完整 Access Key ID` : '创建 API Token 时获得'}
               >
                 <Input placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
               </Form.Item>
               <Form.Item
                 name="secretAccessKey"
                 label="Secret Access Key"
-                rules={[{ required: true }]}
+                rules={[{ required: r2Status !== 'configured' }]}
                 extra="创建 API Token 时获得，仅显示一次，请妥善保存"
               >
                 <Input.Password placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
@@ -335,14 +394,24 @@ function R2ConfigSection() {
               <Form.Item
                 name="publicBaseUrl"
                 label="公网访问地址（可选）"
-                extra="如配置了自定义域名，填入后图片可通过该域名访问，如 https://img.example.com"
+                extra="仅用于图片访问和回显，如 https://img.example.com；不要填写 R2 S3 API Endpoint"
               >
                 <Input placeholder="https://img.example.com" />
               </Form.Item>
               <Form.Item style={{ marginBottom: 0 }}>
-                <Button type="primary" htmlType="submit" loading={r2Loading} block>
-                  保存 R2 配置
-                </Button>
+                <Space direction="vertical" style={{ width: '100%' }}>
+                  <Button type="primary" htmlType="submit" loading={r2Loading} block>
+                    保存 R2 配置
+                  </Button>
+                  <Button
+                    onClick={handleR2Test}
+                    loading={r2Testing}
+                    disabled={r2Status !== 'configured'}
+                    block
+                  >
+                    测试 R2 连接与写入
+                  </Button>
+                </Space>
               </Form.Item>
             </Form>
           </div>

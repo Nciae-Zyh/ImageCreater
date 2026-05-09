@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { Input, Button, Space, Upload, message as antMessage } from 'antd'
+import { Input, Button, Upload, message as antMessage, Tooltip } from 'antd'
 import { SendOutlined, StopOutlined, PictureOutlined, CloseCircleOutlined } from '@ant-design/icons'
 import ModelPopover from '../ModelPopover'
 import HistoryImagePicker from '../HistoryImagePicker'
@@ -97,49 +97,57 @@ export default function ChatInput({ onSend, onCancel, loading = false, disabled 
 
   return (
     <div
-      style={{ padding: '12px 24px', background: '#fff', borderTop: '1px solid #f0f0f0', position: 'relative' }}
+      className="composer-shell"
       onDragEnter={handleDragEnter} onDragLeave={handleDragLeave} onDragOver={handleDragOver} onDrop={handleDrop}
     >
       {isDragging && (
-        <div style={{ position: 'absolute', inset: 0, background: 'rgba(22,119,255,0.08)', border: '2px dashed #1677ff', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10, pointerEvents: 'none' }}>
-          <span style={{ color: '#1677ff', fontSize: 16 }}>拖放图片到这里</span>
+        <div className="composer-drop-overlay">
+          <span>把图片放到这里，我会一起读图</span>
         </div>
       )}
 
-      <div style={{ maxWidth: 800, margin: '0 auto' }}>
+      <div className="composer-inner">
         {pendingImages.length > 0 && (
-          <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+          <div className="composer-attachments">
             {pendingImages.map((img, index) => (
-              <div key={index} style={{ position: 'relative', width: 80, height: 80, borderRadius: 8, overflow: 'hidden', border: '1px solid #d9d9d9' }}>
-                <img src={`data:${img.mimeType};base64,${img.data}`} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                <CloseCircleOutlined onClick={() => removeImage(index)} style={{ position: 'absolute', top: 2, right: 2, fontSize: 16, color: '#ff4d4f', background: '#fff', borderRadius: '50%', cursor: 'pointer' }} />
+              <div key={index} className="composer-thumb">
+                <img src={`data:${img.mimeType};base64,${img.data}`} alt="" />
+                <CloseCircleOutlined onClick={() => removeImage(index)} className="composer-remove" />
               </div>
             ))}
           </div>
         )}
 
-        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
-          <ModelPopover autoMode={autoMode} onAutoModeChange={onAutoModeChange} />
-          <HistoryImagePicker conversationId={conversationId} onSelect={(imgs) => setPendingImages((prev) => [...prev, ...imgs])} />
-          <Upload beforeUpload={(file) => { addImages([file]); return false }} showUploadList={false} accept="image/*" disabled={disabled || loading}>
-            <Button icon={<PictureOutlined />} disabled={disabled || loading} style={{ borderRadius: 12, height: 40 }} />
-          </Upload>
+        <div className="composer-box">
+          <div className="composer-tools">
+            <ModelPopover autoMode={autoMode} onAutoModeChange={onAutoModeChange} />
+            <HistoryImagePicker conversationId={conversationId} onSelect={(imgs) => setPendingImages((prev) => [...prev, ...imgs])} />
+            <Upload beforeUpload={(file) => { addImages([file]); return false }} showUploadList={false} accept="image/*" disabled={disabled || loading}>
+              <Tooltip title="上传图片">
+                <Button type="text" icon={<PictureOutlined />} disabled={disabled || loading} className="composer-tool-button" />
+              </Tooltip>
+            </Upload>
+          </div>
           <TextArea
             ref={textAreaRef}
             value={value}
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
-            placeholder={disabled ? '请先配置 API Key' : '输入消息... (Enter 发送, 可粘贴/拖拽图片)'}
+            placeholder={disabled ? '请先配置 API Key' : '告诉 agent 你想生成、编辑或分析什么...'}
             autoSize={{ minRows: 1, maxRows: 6 }}
             disabled={disabled || loading}
-            style={{ borderRadius: 12, resize: 'none' }}
+            className="composer-input"
           />
           {loading ? (
-            <Button type="primary" danger icon={<StopOutlined />} onClick={onCancel} style={{ borderRadius: 12, height: 40 }}>停止</Button>
+            <Button type="primary" danger icon={<StopOutlined />} onClick={onCancel} className="composer-send-button">停止</Button>
           ) : (
-            <Button type="primary" icon={<SendOutlined />} onClick={handleSend} disabled={(!value.trim() && pendingImages.length === 0) || disabled} style={{ borderRadius: 12, height: 40 }}>发送</Button>
+            <Button type="primary" icon={<SendOutlined />} onClick={handleSend} disabled={(!value.trim() && pendingImages.length === 0) || disabled} className="composer-send-button" />
           )}
+        </div>
+        <div className="composer-hint">
+          <span>Enter 发送，Shift + Enter 换行</span>
+          <span>支持粘贴、拖拽图片</span>
         </div>
       </div>
     </div>

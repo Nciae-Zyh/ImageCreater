@@ -27,12 +27,14 @@ export default function Sidebar({ onNewChat, onOpenSettings, streamingByConversa
 
   return (
     <Sider
+      className="app-sidebar"
       width={260}
       style={{
         background: '#fff',
         borderRight: '1px solid #f0f0f0',
-        display: 'flex',
-        flexDirection: 'column'
+        height: '100%',
+        minHeight: 0,
+        overflow: 'hidden'
       }}
     >
       <div
@@ -60,8 +62,9 @@ export default function Sidebar({ onNewChat, onOpenSettings, streamingByConversa
           </Button>
         </Space>
       </div>
-      <div style={{ flex: 1, overflow: 'auto' }}>
+      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden' }}>
         <List
+          style={{ minHeight: '100%' }}
           dataSource={conversations}
           renderItem={(item) => {
             const isActive = item.id === activeConversationId

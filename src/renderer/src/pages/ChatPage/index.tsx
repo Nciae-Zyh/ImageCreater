@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Layout, Button, Space, Typography, Tag, message as antMessage } from 'antd'
-import { SettingOutlined, RobotOutlined, FileTextOutlined } from '@ant-design/icons'
+import { SettingOutlined, RobotOutlined, FileTextOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import Sidebar from './components/Sidebar'
 import ChatMessage from '../../components/ChatMessage'
 import ChatInput from '../../components/ChatInput'
@@ -390,19 +390,25 @@ export default function ChatPage({ onOpenSettings }: ChatPageProps) {
       />
       <Layout>
         <Header
-          className="titlebar-drag"
+          className="titlebar-drag chat-header"
           style={{
-            background: '#fff', borderBottom: '1px solid #f0f0f0',
             padding: isMac ? '0 16px 0 76px' : '0 16px',
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
             height: isMac ? 48 : 40
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flex: 1, overflow: 'hidden' }}>
-            <RobotOutlined style={{ fontSize: 18, color: '#1677ff', flexShrink: 0 }} />
-            <Text strong style={{ fontSize: 13, flexShrink: 1, minWidth: 0 }} ellipsis={{ tooltip: activeConversation?.title }}>
-              {activeConversation?.title || '新对话'}
-            </Text>
+          <div className="chat-header-title">
+            <span className="chat-header-agent-icon">
+              <RobotOutlined />
+            </span>
+            <div className="chat-header-copy">
+              <Text strong className="chat-header-name" ellipsis={{ tooltip: activeConversation?.title }}>
+                {activeConversation?.title || '新对话'}
+              </Text>
+              <span className="chat-header-subtitle">
+                Agent 会先判断意图，再选择生成、编辑或分析流程
+              </span>
+            </div>
           </div>
           <Space style={{ flexShrink: 0 }}>
             <Text type="secondary" style={{ fontSize: 11 }}>
@@ -427,8 +433,8 @@ export default function ChatPage({ onOpenSettings }: ChatPageProps) {
           </Space>
         </Header>
 
-        <Content style={{ display: 'flex', flexDirection: 'column', height: `calc(100vh - ${isMac ? 48 : 40}px)`, background: '#f5f5f5' }}>
-          <div ref={scrollContainerRef} style={{ flex: 1, overflow: 'auto', padding: '24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <Content className="chat-shell" style={{ display: 'flex', flexDirection: 'column', height: `calc(100vh - ${isMac ? 48 : 40}px)` }}>
+          <div ref={scrollContainerRef} className="chat-scroll-area">
             {activeConversation?.messages.map((msg, idx) => {
               const isLatestMsg = idx === activeConversation.messages.length - 1
               return (
@@ -497,13 +503,18 @@ export default function ChatPage({ onOpenSettings }: ChatPageProps) {
             )}
 
             {(!activeConversation || activeConversation.messages.length === 0) && (
-              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#999' }}>
-                <RobotOutlined style={{ fontSize: 64, marginBottom: 16, opacity: 0.3 }} />
-                <Text type="secondary" style={{ fontSize: 16 }}>开始对话，或输入"画一张..."来生成图片</Text>
-                <Text type="secondary" style={{ fontSize: 13, marginTop: 8 }}>上传图片可进行分析和编辑</Text>
-                <Space style={{ marginTop: 16 }}>
-                  <Tag color="blue">自动选择模型</Tag>
-                  <Tag color="green">语义分析</Tag>
+              <div className="chat-empty-state">
+                <div className="empty-agent-mark">
+                  <ThunderboltOutlined />
+                </div>
+                <h2 className="empty-title">让 agent 接手你的图像任务</h2>
+                <Text className="empty-copy">
+                  直接描述你想要的画面、上传参考图，或说出要怎么修改现有图片。我会先分析意图，再给出可执行方案。
+                </Text>
+                <Space className="empty-chip-row">
+                  <Tag color="blue">意图判断</Tag>
+                  <Tag color="green">Prompt 优化</Tag>
+                  <Tag color="cyan">参考图选择</Tag>
                   <Tag color="orange">跨 Provider</Tag>
                 </Space>
               </div>

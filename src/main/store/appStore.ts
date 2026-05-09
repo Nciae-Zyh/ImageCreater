@@ -1,9 +1,27 @@
 import type { ApiKeyRecord } from '../../../shared/types'
 import type { AppSettings } from '../types/settings'
+import { safeStorage } from 'electron'
+
+export interface PersistedR2Config {
+  accountId: string
+  accessKeyId: string
+  encryptedSecretAccessKey: string
+  bucketName: string
+  publicBaseUrl?: string
+}
+
+export interface R2PlainConfig {
+  accountId: string
+  accessKeyId: string
+  secretAccessKey: string
+  bucketName: string
+  publicBaseUrl?: string
+}
 
 interface AppStoreSchema {
   apiKeys: ApiKeyRecord[]
   settings: AppSettings
+  r2Config?: PersistedR2Config
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -62,4 +80,33 @@ export async function updateSettings(settings: Partial<AppSettings>): Promise<vo
   const store = await getStore()
   const current = store.get('settings')
   store.set('settings', { ...current, ...settings })
+}
+
+export async function saveR2Config(config: R2PlainConfig): Promise<void> {
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error('当前系统不支持安全存储，无法保存 R2 Secret Access Key')
+  }
+  const store = await getStore()
+  const encryptedSecret = safeStorage.encryptString(config.secretAccessKey)
+  store.set('r2Config', {
+    accountId: config.accountId.trim(),
+    accessKeyId: config.accessKeyId.trim(),
+    encryptedSecretAccessKey: encryptedSecret.toString('base64'),
+    bucketName: config.bucketName.trim(),
+    publicBaseUrl: config.publicBaseUrl?.trim() || undefined
+  })
+}
+
+export async function loadR2Config(): Promise<R2PlainConfig | null> {
+  const store = await getStore()
+  const config = store.get('r2Config')
+  if (!config?.encryptedSecretAccessKey) return null
+  const buffer = Buffer.from(config.encryptedSecretAccessKey, 'base64')
+  return {
+    accountId: config.accountId,
+    accessKeyId: config.accessKeyId,
+    secretAccessKey: safeStorage.decryptString(buffer),
+    bucketName: config.bucketName,
+    publicBaseUrl: config.publicBaseUrl
+  }
 }
